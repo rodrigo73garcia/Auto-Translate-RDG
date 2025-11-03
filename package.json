@@ -9,7 +9,7 @@
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",
-    "stremio-addon-sdk": "9.1.0",
+    "stremio-addon-sdk": "6.3.8",
     "axios": "^1.5.0",
     "@vitalets/google-translate-api": "^9.2.1",
     "node-cache": "^5.1.2",
