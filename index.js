@@ -1,4 +1,3 @@
-// index.js — fonte 100% Stremio (subtitles), com priorização EN e tradução para targetLang
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -15,20 +14,16 @@ app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
-const PUBLIC_BASE_URL =
-  process.env.PUBLIC_BASE_URL ||
-  (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : `http://localhost:${PORT}`);
+const PORT = process.env.PORT || 8000;
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 
 const SUBS_DIR = path.join(__dirname, 'subs');
 if (!fs.existsSync(SUBS_DIR)) fs.mkdirSync(SUBS_DIR);
 
-// cache de 7 dias
 const CACHE_TTL_SEC = 60 * 60 * 24 * 7;
 const cache = new NodeCache({ stdTTL: CACHE_TTL_SEC });
 const parser = new SrtParser();
 
-// 20 idiomas “top” (códigos Google Translate)
 const TOP20 = [
   { name: 'Inglês - en', value: 'en' },
   { name: 'Chinês (Mandarim) - zh-CN', value: 'zh-CN' },
@@ -61,44 +56,29 @@ function parseUpstreams(input) {
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
-    .map(s => s.replace(//+$/, ''));
+    .map(s => s.replace(/\/+$/, ''));
 }
 
 function getConfiguredUpstreams(extraUpstreams) {
   const fromExtra = parseUpstreams(extraUpstreams);
   if (fromExtra.length) return fromExtra;
-  const env = process.env.STREMIO_SUBS_BASES || process.env.STREMIO_SUBS_BASE || '';
+  const env = process.env.STREMIO_SUBS_BASES || 'https://opensubtitles-v3.stremio.online';
   return parseUpstreams(env);
 }
 
-// Conversão simples WEBVTT -> SRT (best-effort)
 function vttToSrt(vtt) {
-  let text = String(vtt).replace(/
-/g, '');
-  text = text.replace(/^﻿?WEBVTT[^
-]*
-+/i, '');
-  text = text.replace(/(^|
-)NOTE[^
-]*
-[sS]*?(?=
-
-|$)/gi, '$1'); // remove NOTE blocks
-  // tempos: 00:00:12.345 -> 00:00:12,345 | 00:12.345 -> 00:00:12,345
+  let text = String(vtt).replace(/\r/g, '');
+  text = text.replace(/^\uFEFF?WEBVTT[^\n]*\n+/i, '');
+  text = text.replace(/(^|\n)NOTE[^\n]*\n[\s\S]*?(?=\n\n|$)/gi, '$1');
   text = text
-    .replace(/(d{2}):(d{2}).(d{3})/g, '00:$1:$2,$3')
-    .replace(/(d{2}):(d{2}):(d{2}).(d{3})/g, '$1:$2:$3,$4');
-  const blocks = text.split(/
-{2,}/).map(b => b.trim()).filter(Boolean);
+    .replace(/(\d{2}):(\d{2})\.(\d{3})/g, '00:$1:$2,$3')
+    .replace(/(\d{2}):(\d{2}):(\d{2})\.(\d{3})/g, '$1:$2:$3,$4');
+  const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
   const srtBlocks = blocks.map((b, i) => {
-    const lines = b.split('
-');
-    return /^d+$/.test(lines[0]) ? b : `${i + 1}
-${b}`;
+    const lines = b.split('\n');
+    return /^\d+$/.test(lines[0]) ? b : `${i + 1}\n${b}`;
   });
-  return srtBlocks.join('
-
-');
+  return srtBlocks.join('\n\n');
 }
 
 async function fetchUpstreamSubtitles(type, id, upstreams) {
@@ -136,11 +116,10 @@ async function translateSrtText(srtText, targetLang) {
   try {
     data = parser.fromSrt(srtText);
   } catch (_) {
-    const lines = srtText.split('
-');
+    const lines = srtText.split('\n');
     const out = [];
     for (const line of lines) {
-      if (/^d+$/.test(line) || line.includes('-->') || line.trim() === '') out.push(line);
+      if (/^\d+$/.test(line) || line.includes('-->') || line.trim() === '') out.push(line);
       else {
         try {
           const res = await translate(line, { to: targetLang });
@@ -150,29 +129,21 @@ async function translateSrtText(srtText, targetLang) {
         }
       }
     }
-    return out.join('
-');
+    return out.join('\n');
   }
 
   const BATCH_SIZE = 20;
-  const blocks = data.map(it => it.text.replace(/
-/g, '').split('
-').join(' '));
+  const blocks = data.map(it => it.text.replace(/\r/g, '').split('\n').join(' '));
   const translated = [];
   for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
     const slice = blocks.slice(i, i + BATCH_SIZE);
-    const big = slice.join('
-
-');
+    const big = slice.join('\n\n');
     try {
       const res = await translate(big, { to: targetLang });
-      const parts = res.text.split('
-
-');
+      const parts = res.text.split('\n\n');
       if (parts.length === slice.length) translated.push(...parts);
       else {
-        const lines = res.text.split('
-');
+        const lines = res.text.split('\n');
         for (let j = 0; j < slice.length; j++) translated.push(lines[j] || slice[j]);
       }
     } catch {
@@ -183,7 +154,6 @@ async function translateSrtText(srtText, targetLang) {
   return parser.toSrt(newItems);
 }
 
-// Manifesto com configuração de idioma e de fontes (upstreams) de legendas Stremio
 function makeManifest(targetLang = 'pt-BR', upstreamsDefault = '') {
   return {
     id: 'org.auto.translate.rdg',
@@ -216,7 +186,6 @@ function makeManifest(targetLang = 'pt-BR', upstreamsDefault = '') {
 const defaultManifest = makeManifest('pt-BR', '');
 const builder = new addonBuilder(defaultManifest);
 
-// handler de subtitles
 builder.defineSubtitleHandler(({ type, id, extra }, cb) => {
   const requestedLang = (extra && (extra.lang || extra.targetLang)) || 'pt-BR';
   const upstreams = getConfiguredUpstreams(extra && extra.upstreams);
@@ -248,10 +217,8 @@ builder.defineSubtitleHandler(({ type, id, extra }, cb) => {
   })();
 });
 
-// arquivos gerados
 app.use('/subs', express.static(SUBS_DIR));
 
-// manifest parametrizável (targetLang, upstreams)
 app.get('/manifest.json', (req, res) => {
   const targetLang = req.query.targetLang || 'pt-BR';
   const upstreams = req.query.upstreams || '';
@@ -260,7 +227,6 @@ app.get('/manifest.json', (req, res) => {
   res.json(manifest);
 });
 
-// página de configuração
 app.get('/configure', (req, res) => {
   const targetLang = req.query.targetLang || 'pt-BR';
   const upstreams = req.query.upstreams || '';
@@ -294,10 +260,8 @@ app.get('/configure', (req, res) => {
   res.send(html);
 });
 
-// health
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-// monta o router do addon
 app.use('/', builder.getRouter());
 
 app.listen(PORT, () => {
