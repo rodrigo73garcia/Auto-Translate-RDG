@@ -2,11 +2,9 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const { addonBuilder } = require('stremio-addon-client');
 const axios = require('axios');
 const translate = require('@vitalets/google-translate-api');
 const NodeCache = require('node-cache');
-const { default: SrtParser } = require('srt-parser-2');
 require('dotenv').config();
 
 const app = express();
@@ -22,7 +20,6 @@ if (!fs.existsSync(SUBS_DIR)) fs.mkdirSync(SUBS_DIR);
 
 const CACHE_TTL_SEC = 60 * 60 * 24 * 7;
 const cache = new NodeCache({ stdTTL: CACHE_TTL_SEC });
-const parser = new SrtParser();
 
 const TOP20 = [
   { name: 'Inglês - en', value: 'en' },
@@ -66,21 +63,6 @@ function getConfiguredUpstreams(extraUpstreams) {
   return parseUpstreams(env);
 }
 
-function vttToSrt(vtt) {
-  let text = String(vtt).replace(/\r/g, '');
-  text = text.replace(/^\uFEFF?WEBVTT[^\n]*\n+/i, '');
-  text = text.replace(/(^|\n)NOTE[^\n]*\n[\s\S]*?(?=\n\n|$)/gi, '$1');
-  text = text
-    .replace(/(\d{2}):(\d{2})\.(\d{3})/g, '00:$1:$2,$3')
-    .replace(/(\d{2}):(\d{2}):(\d{2})\.(\d{3})/g, '$1:$2:$3,$4');
-  const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
-  const srtBlocks = blocks.map((b, i) => {
-    const lines = b.split('\n');
-    return /^\d+$/.test(lines[0]) ? b : `${i + 1}\n${b}`;
-  });
-  return srtBlocks.join('\n\n');
-}
-
 async function fetchUpstreamSubtitles(type, id, upstreams) {
   const all = [];
   for (const base of upstreams) {
@@ -102,60 +84,25 @@ function pickPreferredEnglish(subs) {
 
 async function downloadAsSrt(url) {
   const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
-  const buf = Buffer.from(resp.data);
-  const head = buf.slice(0, 16).toString('utf8');
-  const txt = buf.toString('utf8');
-  if (/WEBVTT/i.test(head) || /^WEBVTT/i.test(txt)) {
-    return vttToSrt(txt);
-  }
-  return txt;
+  return Buffer.from(resp.data).toString('utf8');
 }
 
-async function translateSrtText(srtText, targetLang) {
-  let data;
+async function translateText(text, targetLang) {
   try {
-    data = parser.fromSrt(srtText);
-  } catch (_) {
-    const lines = srtText.split('\n');
-    const out = [];
-    for (const line of lines) {
-      if (/^\d+$/.test(line) || line.includes('-->') || line.trim() === '') out.push(line);
-      else {
-        try {
-          const res = await translate(line, { to: targetLang });
-          out.push(res.text);
-        } catch {
-          out.push(line);
-        }
-      }
-    }
-    return out.join('\n');
+    const res = await translate(text, { to: targetLang });
+    return res.text;
+  } catch {
+    return text;
   }
-
-  const BATCH_SIZE = 20;
-  const blocks = data.map(it => it.text.replace(/\r/g, '').split('\n').join(' '));
-  const translated = [];
-  for (let i = 0; i < blocks.length; i += BATCH_SIZE) {
-    const slice = blocks.slice(i, i + BATCH_SIZE);
-    const big = slice.join('\n\n');
-    try {
-      const res = await translate(big, { to: targetLang });
-      const parts = res.text.split('\n\n');
-      if (parts.length === slice.length) translated.push(...parts);
-      else {
-        const lines = res.text.split('\n');
-        for (let j = 0; j < slice.length; j++) translated.push(lines[j] || slice[j]);
-      }
-    } catch {
-      translated.push(...slice);
-    }
-  }
-  const newItems = data.map((item, idx) => ({ ...item, text: translated[idx] || item.text }));
-  return parser.toSrt(newItems);
 }
 
-function makeManifest(targetLang = 'pt-BR', upstreamsDefault = '') {
-  return {
+app.use('/subs', express.static(SUBS_DIR));
+
+app.get('/manifest.json', (req, res) => {
+  const targetLang = req.query.targetLang || 'pt-BR';
+  const upstreams = req.query.upstreams || '';
+  
+  res.json({
     id: 'org.auto.translate.rdg',
     version: '1.2.0',
     name: 'Auto Translate RDG',
@@ -176,55 +123,54 @@ function makeManifest(targetLang = 'pt-BR', upstreamsDefault = '') {
         key: 'upstreams',
         name: 'Base URLs de addons de legendas (separadas por vírgula)',
         type: 'text',
-        default: upstreamsDefault
+        default: upstreams
       }
     ],
     behaviorHints: { config_url: `${PUBLIC_BASE_URL}/configure` }
-  };
-}
-
-const defaultManifest = makeManifest('pt-BR', '');
-const builder = new addonBuilder(defaultManifest);
-
-builder.defineSubtitleHandler(({ type, id, extra }, cb) => {
-  const requestedLang = (extra && (extra.lang || extra.targetLang)) || 'pt-BR';
-  const upstreams = getConfiguredUpstreams(extra && extra.upstreams);
-  const cacheKey = `${type}_${id}_${requestedLang}_${upstreams.join('|')}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return cb(null, { subtitles: [cached] });
-
-  (async () => {
-    try {
-      if (!upstreams.length) return cb(null, { subtitles: [] });
-      const list = await fetchUpstreamSubtitles(type, id, upstreams);
-      const chosen = pickPreferredEnglish(list);
-      if (!chosen || !chosen.url) return cb(null, { subtitles: [] });
-
-      const originalSrt = await downloadAsSrt(chosen.url);
-      const translated = await translateSrtText(originalSrt, requestedLang);
-
-      const fname = safeFilename(`${id}_${requestedLang}.srt`);
-      const fpath = path.join(SUBS_DIR, fname);
-      fs.writeFileSync(fpath, translated, 'utf8');
-
-      const url = `${PUBLIC_BASE_URL}/subs/${fname}`;
-      const subObj = { id: `${id}-${requestedLang}-rdg`, lang: requestedLang, url };
-      cache.set(cacheKey, subObj);
-      return cb(null, { subtitles: [subObj] });
-    } catch (_) {
-      return cb(null, { subtitles: [] });
-    }
-  })();
+  });
 });
 
-app.use('/subs', express.static(SUBS_DIR));
-
-app.get('/manifest.json', (req, res) => {
+app.get('/subtitles/:type/:id.json', async (req, res) => {
+  const { type, id } = req.params;
   const targetLang = req.query.targetLang || 'pt-BR';
-  const upstreams = req.query.upstreams || '';
-  const manifest = makeManifest(targetLang, upstreams);
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.json(manifest);
+  const upstreams = getConfiguredUpstreams(req.query.upstreams);
+  
+  const cacheKey = `${type}_${id}_${targetLang}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return res.json({ subtitles: [cached] });
+
+  try {
+    if (!upstreams.length) return res.json({ subtitles: [] });
+    
+    const list = await fetchUpstreamSubtitles(type, id, upstreams);
+    const chosen = pickPreferredEnglish(list);
+    if (!chosen || !chosen.url) return res.json({ subtitles: [] });
+
+    const srtText = await downloadAsSrt(chosen.url);
+    const lines = srtText.split('\n');
+    const translated = [];
+    
+    for (const line of lines) {
+      if (/^\d+$/.test(line) || line.includes('-->') || line.trim() === '') {
+        translated.push(line);
+      } else {
+        const trans = await translateText(line, targetLang);
+        translated.push(trans);
+      }
+    }
+
+    const fname = safeFilename(`${id}_${targetLang}.srt`);
+    const fpath = path.join(SUBS_DIR, fname);
+    fs.writeFileSync(fpath, translated.join('\n'), 'utf8');
+
+    const url = `${PUBLIC_BASE_URL}/subs/${fname}`;
+    const subObj = { id: `${id}-${targetLang}-rdg`, lang: targetLang, url };
+    cache.set(cacheKey, subObj);
+    
+    res.json({ subtitles: [subObj] });
+  } catch (e) {
+    res.json({ subtitles: [] });
+  }
 });
 
 app.get('/configure', (req, res) => {
@@ -238,7 +184,7 @@ app.get('/configure', (req, res) => {
 
   const installUrl = `${PUBLIC_BASE_URL}/manifest.json?targetLang=${encodeURIComponent(targetLang)}&upstreams=${encodeURIComponent(upstreams)}`;
   const html = `
-    <html><head><meta charset="utf-8"><title>Auto Translate RDG - Configurar</title></head>
+    <html><head><meta charset="utf-8"><title>Auto Translate RDG</title></head>
     <body style="font-family: system-ui, sans-serif; padding: 24px; max-width: 880px;">
       <h2>Auto Translate RDG</h2>
       <form method="GET" action="/configure" style="margin-bottom:16px">
@@ -250,10 +196,8 @@ app.get('/configure', (req, res) => {
         <br/><br/>
         <button type="submit">Gerar link de instalação</button>
       </form>
-      <p>Instalar no Stremio usando o manifest:</p>
+      <p>Instalar no Stremio:</p>
       <pre style="white-space:pre-wrap; background:#f7f7f7; padding:12px; border-radius:8px">${installUrl}</pre>
-      <p>Copie a URL acima e cole em Meus Addons → Adicionar manualmente no Stremio.</p>
-      <p><a href="${installUrl}">Abrir manifest.json</a></p>
     </body></html>
   `;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -261,8 +205,6 @@ app.get('/configure', (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
-
-app.use('/', builder.getRouter());
 
 app.listen(PORT, () => {
   console.log(`Auto Translate RDG rodando na porta ${PORT}`);
