@@ -1,0 +1,16 @@
+{
+  "id": "org.auto.translate.rdg",
+  "version": "1.1.0",
+  "name": "Auto Translate RDG",
+  "description": "Addon que lê legendas de addons Stremio, prioriza EN, traduz e serve .srt no idioma configurado.",
+  "resources": [
+    "subtitles"
+  ],
+  "types": [
+    "movie",
+    "series"
+  ],
+  "idPrefixes": [
+    "tt"
+  ]
+}
