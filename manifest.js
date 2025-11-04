@@ -1,25 +1,19 @@
 import { TRANSLATION_LANGUAGES } from "./config.js";
 
 export function generateManifest(lang = "pt-br") {
-  // Normalizar código de idioma
   const langCode = lang === "Português (Brasil)" || lang === "pt-br" ? "pt-BR" : lang;
 
   const manifest = {
-    // ========== CAMPOS OBRIGATÓRIOS ==========
     id: "org.rdg.autotranslate", 
     version: "2.0.0",
     name: "Auto Translate RDG",
     description: "Traduz legendas automaticamente para português e outros idiomas",
     
-    // ========== RECURSOS E TIPOS ==========
-    resources: ["subtitles"],  // Array obrigatório
+    resources: ["subtitles"],
     types: ["movie", "series"],
-    idPrefixes: ["tt"],  // Stremio passa IMDb IDs com "tt"
+    idPrefixes: ["tt"],
+    catalogs: [],
     
-    // ========== CATALOGS (necessário, mesmo vazio) ==========
-    catalogs: [],  // Array vazio é válido
-    
-    // ========== CONFIGURAÇÃO DE IDIOMA ==========
     config: [
       {
         key: "language",
@@ -33,9 +27,7 @@ export function generateManifest(lang = "pt-br") {
       }
     ],
     
-    // ========== OPCIONAL MAS RECOMENDADO ==========
-    logo: "https://auto-translate-rdg.onrender.com/icon.png",
-    background: "https://auto-translate-rdg.onrender.com/bg.jpg",
+    // ⚠️ REMOVIDO: logo e background causam rejeição do Stremio
     contactEmail: "rdgaddons@outlook.com",
     behaviorHints: {
       configurable: true,
