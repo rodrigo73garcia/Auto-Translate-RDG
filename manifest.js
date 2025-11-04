@@ -1,36 +1,35 @@
 import { TRANSLATION_LANGUAGES } from "./config.js";
 
 export function generateManifest(lang = "pt-br") {
-  const langCode = lang === "Português (Brasil)" || lang === "pt-br" ? "pt-BR" : lang;
+  // Normalizar idioma recebido pela URL
+  let targetLang = "pt-BR";
+  
+  if (lang) {
+    // Se veio da URL com nome completo, converter
+    if (lang === "Português (Brasil)" || lang.includes("Brasil")) {
+      targetLang = "pt-BR";
+    } else if (lang === "Português (Portugal)" || lang.includes("Portugal")) {
+      targetLang = "pt";
+    } else {
+      // Usar o código direto
+      targetLang = lang;
+    }
+  }
 
   const manifest = {
-    id: "org.rdg.autotranslate", 
+    id: `org.rdg.autotranslate.${targetLang}`,  // ID único por idioma
     version: "2.0.0",
-    name: "Auto Translate RDG",
-    description: "Traduz legendas automaticamente para português e outros idiomas",
+    name: `Auto Translate RDG (${targetLang})`,
+    description: `Traduz legendas automaticamente para ${targetLang}`,
     
     resources: ["subtitles"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
     catalogs: [],
     
-    config: [
-      {
-        key: "language",
-        label: "Subtitle Language",
-        type: "select",
-        default: "pt-BR",
-        options: TRANSLATION_LANGUAGES.map(l => ({
-          key: l.code.toUpperCase() === "PT-BR" ? "pt-BR" : l.code,
-          label: l.name
-        }))
-      }
-    ],
-    
-    // ⚠️ REMOVIDO: logo e background causam rejeição do Stremio
     contactEmail: "rdgaddons@outlook.com",
     behaviorHints: {
-      configurable: true,
+      configurable: false,
       configurationRequired: false
     }
   };
