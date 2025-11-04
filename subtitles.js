@@ -18,7 +18,9 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
     // API de legendas base
     const apiUrl = `https://rest.opensubtitles.org/search/imdbid-${imdbId}/sublanguageid-eng`;
     const res = await axios.get(apiUrl, {
-      headers: { "User-Agent": "AutoTranslateRDG" }
+      headers: { 
+        "User-Agent": "AutoTranslateRDG v2.0.0"
+      }
     });
 
     if (!res.data?.length) {
@@ -31,7 +33,18 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
     const downloadUrl = mainSub.SubDownloadLink?.replace(".gz", "");
     
     console.log(`📥 Baixando legenda: ${downloadUrl}`);
-    const subData = await axios.get(downloadUrl);
+    
+    // Headers específicos para download do OpenSubtitles
+    const subData = await axios.get(downloadUrl, {
+      headers: { 
+        "User-Agent": "AutoTranslateRDG v2.0.0",
+        "Referer": "https://www.opensubtitles.org/",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      timeout: 30000
+    });
+    
     const text = subData.data.toString();
 
     // Traduzir
