@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Auto Translate RDG - Stremio Addon</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>🌐 Auto Translate RDG</h1>
+  <p>Addon Stremio para tradução automática de legendas via API.</p>
+
+  <label for="langSelect">Selecione o idioma de tradução:</label>
+  <select id="langSelect"></select>
+
+  <button id="generate">Gerar link de instalação</button>
+
+  <div id="output" class="hidden">
+    <p>URL de instalação:</p>
+    <input type="text" id="installUrl" readonly />
+    <button id="copyBtn">📋 Copiar</button>
+    <a id="installBtn" target="_blank">🚀 Instalar no Stremio</a>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
