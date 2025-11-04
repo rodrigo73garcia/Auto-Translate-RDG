@@ -1,6 +1,12 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -8,16 +14,20 @@ app.use(cors());
 const PORT = process.env.PORT || 3000;
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "http://localhost:" + PORT;
 
-// Upstreams fixos (pré-configurados)
+// Diretório para salvar legendas traduzidas
+const SUBS_DIR = path.join(__dirname, "subs");
+if (!fs.existsSync(SUBS_DIR)) fs.mkdirSync(SUBS_DIR);
+
+// Upstreams fixos
 const defaultUpstreams = [
   "https://opensubtitles.strem.io",
   "https://legendas.tv.strem.io"
 ];
 
-// Endpoint de tradução (LibreTranslate)
-const LIBRETRANSLATE_URL = "https://libretranslate.com/translate";
+// LibreTranslate endpoint
+const LIBRETRANSLATE_URL = process.env.LIBRETRANSLATE_API || "https://libretranslate.com/translate";
 
-// Idiomas disponíveis (21, incluindo PT-BR e PT-PT)
+// Idiomas (21)
 const LANGUAGES = {
   en: "English",
   es: "Español",
@@ -41,6 +51,11 @@ const LANGUAGES = {
   he: "עברית (Hebrew)",
   id: "Bahasa Indonesia"
 };
+
+// Função utilitária
+function safe(str) {
+  return String(str).replace(/[^a-z0-9-_.]/gi, "_");
+}
 
 // Página de configuração multilíngue
 app.get("/configure", (req, res) => {
@@ -103,87 +118,86 @@ app.get("/configure", (req, res) => {
   `);
 });
 
-// Manifest (instalação no Stremio)
+// Manifest
 app.get("/manifest.json", (req, res) => {
   const targetLang = req.query.targetLang || "pt-BR";
-
-  const manifest = {
+  res.json({
     id: "org.auto.translate.rdg",
-    version: "1.0.0",
+    version: "1.2.0",
     name: `Auto-Translate (${LANGUAGES[targetLang] || targetLang})`,
-    description: `Addon that translates subtitles automatically to ${LANGUAGES[targetLang] || targetLang}`,
+    description: `Automatically translates subtitles to ${LANGUAGES[targetLang] || targetLang}`,
     resources: ["subtitles"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
     catalogs: [],
     behaviorHints: { configurable: true, configurationRequired: false }
-  };
-
-  res.json(manifest);
+  });
 });
 
-// Rota principal de legendas
-app.get("/subtitles/:type/:id/:extra?.json", async (req, res) => {
+// Endpoint principal de legendas
+app.get("/subtitles/:type/:id.json", async (req, res) => {
+  const { type, id } = req.params;
   const targetLang = req.query.targetLang || "pt-BR";
-  const imdbId = req.params.id.split(":")[0];
+  const imdbId = id.split(":")[0];
 
-  let subtitles = [];
+  let subs = [];
 
+  // Tenta buscar legendas em inglês, se não tiver pega qualquer idioma
   for (const base of defaultUpstreams) {
     try {
-      const url = `${base}/subtitles/${imdbId}.json`;
+      const url = `${base}/subtitles/${type}/${imdbId}.json`;
       const response = await fetch(url);
       if (!response.ok) continue;
-
-      const subs = await response.json();
-      if (subs && subs.length > 0) {
-        subtitles = subs.filter(s => s.language === "en" || s.language === "eng");
-        if (subtitles.length === 0) subtitles = subs; // se não houver inglês, usa qualquer idioma
-        break;
-      }
+      const json = await response.json();
+      const arr = json.subtitles || [];
+      subs = arr.filter(s => s.lang.startsWith("en"));
+      if (subs.length === 0) subs = arr;
+      if (subs.length > 0) break;
     } catch (e) {
-      console.error("Erro ao buscar legendas de", base, e.message);
+      console.error("Erro ao buscar em", base, e.message);
     }
   }
 
-  const translated = await Promise.all(
-    subtitles.map(async (sub) => {
-      try {
+  if (!subs.length) return res.json({ subtitles: [] });
+
+  const chosen = subs[0];
+  const subtitleUrl = chosen.url;
+
+  try {
+    const srt = await (await fetch(subtitleUrl)).text();
+    const translatedLines = [];
+    const lines = srt.split("\n");
+
+    for (const line of lines) {
+      if (/^\d+$/.test(line) || line.includes("-->") || !line.trim()) {
+        translatedLines.push(line);
+      } else {
         const resp = await fetch(LIBRETRANSLATE_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            q: sub.data || "",
-            source: "en",
-            target: targetLang,
-            format: "text"
-          })
+          body: JSON.stringify({ q: line, source: "auto", target: targetLang, format: "text" })
         });
-
-        const json = await resp.json();
-        if (!json.translatedText) throw new Error("Sem retorno da tradução");
-
-        return {
-          ...sub,
-          language: targetLang,
-          name: `[Auto-Translated] ${LANGUAGES[targetLang] || targetLang}`,
-          data: json.translatedText
-        };
-      } catch (e) {
-        console.error("Falha ao traduzir legenda:", e.message);
-        return null;
+        const data = await resp.json();
+        translatedLines.push(data.translatedText || line);
       }
-    })
-  );
+    }
 
-  res.json(translated.filter(Boolean));
+    const fname = safe(imdbId + "_" + targetLang + ".srt");
+    const fpath = path.join(SUBS_DIR, fname);
+    fs.writeFileSync(fpath, translatedLines.join("\n"), "utf8");
+
+    const subUrl = `${PUBLIC_BASE_URL}/subs/${fname}`;
+    res.json({ subtitles: [{ id: imdbId + "-" + targetLang, lang: targetLang, url: subUrl }] });
+  } catch (e) {
+    console.error("Falha ao traduzir legenda:", e.message);
+    res.json({ subtitles: [] });
+  }
 });
 
-// Rota raiz
-app.get("/", (req, res) => {
-  res.redirect("/configure");
-});
+app.use("/subs", express.static(SUBS_DIR));
+
+app.get("/", (req, res) => res.redirect("/configure"));
 
 app.listen(PORT, () => {
-  console.log(`🚀 Auto-Translate Addon running on ${PUBLIC_BASE_URL}`);
+  console.log(`🚀 Auto-Translate RDG running on ${PUBLIC_BASE_URL}`);
 });
