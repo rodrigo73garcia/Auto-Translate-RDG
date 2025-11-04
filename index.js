@@ -11,6 +11,11 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static("public"));
 
+// Health check - Render usa isso para verificar se a app está pronta
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok", message: "Auto Translate RDG is running!" });
+});
+
 // Página inicial
 app.get("/", (req, res) => {
   res.sendFile(process.cwd() + "/public/index.html");
