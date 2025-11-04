@@ -9,14 +9,13 @@ const NodeCache = require('node-cache');
 require('dotenv').config();
 
 const app = express();
-app.set('trust proxy', 1); // respeita X-Forwarded-* em proxy (Render)
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 8000;
 
-// ao gerar links públicos, usa env se houver; senão, deriva do request (corrige hash/host)
 function getBaseUrl(req) {
   const fromEnv = process.env.PUBLIC_BASE_URL && process.env.PUBLIC_BASE_URL.trim();
   if (fromEnv) return fromEnv;
@@ -54,12 +53,10 @@ const TOP20 = [
   { name: 'Persa (Farsi) - fa', value: 'fa' }
 ];
 
-// sanitiza nomes de arquivo
 function safeFilename(str) {
   return String(str).replace(/[^a-z0-9-_.]/gi, '_');
 }
 
-// "upstreams" como CSV -> array normalizado
 function parseUpstreams(input) {
   return String(input || '')
     .split(',')
@@ -68,7 +65,6 @@ function parseUpstreams(input) {
     .map(s => s.replace(//+$/, ''));
 }
 
-// obtém upstreams da config (extra) ou do ambiente
 function getConfiguredUpstreams(extraUpstreams) {
   const fromExtra = parseUpstreams(extraUpstreams);
   if (fromExtra.length) return fromExtra;
@@ -76,7 +72,6 @@ function getConfiguredUpstreams(extraUpstreams) {
   return parseUpstreams(env);
 }
 
-// baixa/concatena legendas do(s) upstream(s) Stremio no formato /subtitles/{type}/{id}.json
 async function fetchUpstreamSubtitles(type, id, upstreams) {
   const all = [];
   for (const base of upstreams) {
@@ -90,20 +85,17 @@ async function fetchUpstreamSubtitles(type, id, upstreams) {
   return all;
 }
 
-// prioriza EN; se não houver, devolve a primeira disponível
 function pickPreferredEnglish(subs) {
   if (!subs || !subs.length) return null;
   const en = subs.find(s => (String(s.lang || '').toLowerCase()).startsWith('en'));
   return en || subs[0] || null;
 }
 
-// baixa como texto (.srt ou .vtt convertido pelo upstream) — aqui assume texto utf8
 async function downloadAsSrt(url) {
   const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
   return Buffer.from(resp.data).toString('utf8');
 }
 
-// traduz linha a linha mantendo marcações/tempos
 async function translateText(text, targetLang) {
   try {
     const res = await translate(text, { to: targetLang });
@@ -113,7 +105,6 @@ async function translateText(text, targetLang) {
   }
 }
 
-// extrai "extra" tanto via query (?extra=%7B..%7D) quanto via segmento (/:extra.json)
 function parseExtra(req) {
   let extra = {};
   if (req.query && req.query.extra) {
@@ -127,14 +118,13 @@ function parseExtra(req) {
 
 app.use('/subs', express.static(SUBS_DIR));
 
-// manifesto JSON — behaviorHints.configurable = true para o Stremio reter configurações
 app.get('/manifest.json', (req, res) => {
   const base = getBaseUrl(req);
   const targetLang = req.query.targetLang || 'pt-BR';
   const upstreams = req.query.upstreams || '';
   const manifest = {
     id: 'org.auto.translate.rdg',
-    version: '1.2.1',
+    version: '1.2.2',
     name: 'Auto Translate RDG',
     description: 'Subtitles-only: lê legendas de addons Stremio, prioriza EN, traduz e serve .srt no idioma escolhido.',
     resources: ['subtitles'],
@@ -142,35 +132,18 @@ app.get('/manifest.json', (req, res) => {
     idPrefixes: ['tt'],
     catalogs: [],
     config: [
-      {
-        key: 'targetLang',
-        name: 'Idioma alvo das legendas',
-        type: 'select',
-        options: TOP20,
-        default: targetLang
-      },
-      {
-        key: 'upstreams',
-        name: 'Base URLs de addons de legendas (separadas por vírgula)',
-        type: 'text',
-        default: upstreams
-      }
+      { key: 'targetLang', name: 'Idioma alvo das legendas', type: 'select', options: TOP20, default: targetLang },
+      { key: 'upstreams', name: 'Base URLs de addons de legendas (separadas por vírgula)', type: 'text', default: upstreams }
     ],
-    behaviorHints: {
-      configurable: true,
-      configurationRequired: false,
-      config_url: `${base}/configure`
-    }
+    behaviorHints: { configurable: true, configurationRequired: false, config_url: `${base}/configure` }
   };
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.json(manifest);
 });
 
-// duas variantes aceitas pelo Stremio: com e sem segmento "extra"
 app.get('/subtitles/:type/:id/:extra.json', subtitlesHandler);
 app.get('/subtitles/:type/:id.json', subtitlesHandler);
 
-// handler principal de legendas
 async function subtitlesHandler(req, res) {
   const base = getBaseUrl(req);
   const { type, id } = req.params;
@@ -205,14 +178,12 @@ async function subtitlesHandler(req, res) {
     const url = `${base}/subs/${fname}`;
     const subObj = { id: `${id}-${targetLang}-rdg`, lang: targetLang, url };
     cache.set(cacheKey, subObj);
-
-    return res.json({ subtitles: [subObj] });
+    res.json({ subtitles: [subObj] });
   } catch {
-    return res.json({ subtitles: [] });
+    res.json({ subtitles: [] });
   }
 }
 
-// página de configuração com link de instalação absoluto e previsível
 app.get('/configure', (req, res) => {
   const base = getBaseUrl(req);
   const targetLang = req.query.targetLang || 'pt-BR';
