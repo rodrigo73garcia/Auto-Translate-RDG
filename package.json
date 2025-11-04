@@ -5,12 +5,14 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
-    "axios": "^1.13.1",
+    "axios": "^1.6.7",
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "fs-extra": "^11.2.0",
     "node-fetch": "^3.3.2"
   },
   "engines": {
@@ -28,5 +30,8 @@
     "movies",
     "series"
   ],
-  "author": "Rodrigo Garcia (RDG)"
+  "author": "Rodrigo Garcia (RDG)",
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
 }
