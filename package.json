@@ -1,7 +1,7 @@
 {
   "name": "auto-translate-rdg",
   "version": "1.0.0",
-  "description": "Addon para Stremio que traduz legendas automaticamente usando LibreTranslate (gratuito e open source).",
+  "description": "Addon para Stremio que traduz legendas automaticamente com Google Cloud Translation (fallback MyMemory).",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -9,12 +9,14 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
+    "@google-cloud/translate": "^8.3.0",
     "axios": "^1.6.7",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "fs-extra": "^11.2.0",
-    "node-cache": "^5.1.2",
-    "node-fetch": "^3.3.2"
+    "node-cache": "^5.1.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   },
   "engines": {
     "node": ">=18"
@@ -25,14 +27,9 @@
     "addon",
     "subtitles",
     "translation",
-    "libretranslate",
-    "auto-translate",
+    "google-translate",
     "portuguese",
     "movies",
     "series"
-  ],
-  "author": "Rodrigo Garcia (RDG)",
-  "devDependencies": {
-    "nodemon": "^3.1.10"
-  }
+  ]
 }
