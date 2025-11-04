@@ -1,7 +1,7 @@
 {
   "name": "auto-translate-rdg",
   "version": "1.0.0",
-  "description": "Addon para Stremio que traduz legendas automaticamente com Google Cloud Translation (fallback MyMemory).",
+  "description": "Addon Stremio que traduz legendas usando google-translate-api-x (com chunking e cache).",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -9,10 +9,10 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
-    "@google-cloud/translate": "^8.3.0",
     "axios": "^1.6.7",
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "google-translate-api-x": "^10.7.2",
     "node-cache": "^5.1.2"
   },
   "devDependencies": {
@@ -21,15 +21,5 @@
   "engines": {
     "node": ">=18"
   },
-  "license": "MIT",
-  "keywords": [
-    "stremio",
-    "addon",
-    "subtitles",
-    "translation",
-    "google-translate",
-    "portuguese",
-    "movies",
-    "series"
-  ]
+  "license": "MIT"
 }
