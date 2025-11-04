@@ -11,7 +11,7 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static("public"));
 
-// Health check - Render usa isso para verificar se a app está pronta
+// Health check
 app.get("/health", (req, res) => {
   console.log("✅ Health check recebido");
   res.status(200).json({ status: "ok", message: "Auto Translate RDG is running!" });
@@ -27,7 +27,7 @@ app.get("/", (req, res) => {
   }
 });
 
-// Rota do manifest - necessária para Stremio reconhecer a addon
+// Rota do manifest
 app.get("/manifest.json", (req, res) => {
   try {
     const lang = req.query.lang || "pt-br";
@@ -40,10 +40,15 @@ app.get("/manifest.json", (req, res) => {
   }
 });
 
+// Helper para remover prefixo "tt" do imdbId
+function cleanImdbId(id) {
+  return id.replace(/^tt/, "");
+}
+
 // Rota para legendas de filmes
 app.get("/subtitles/movie/:imdbId.json", async (req, res) => {
   try {
-    const { imdbId } = req.params;
+    const imdbId = cleanImdbId(req.params.imdbId); // Remove "tt" se existir
     const lang = req.query.lang || "pt-br";
     console.log(`🎬 Solicitação: movie/${imdbId} - Idioma: ${lang}`);
     
@@ -58,7 +63,7 @@ app.get("/subtitles/movie/:imdbId.json", async (req, res) => {
 // Rota para legendas de séries
 app.get("/subtitles/series/:imdbId.json", async (req, res) => {
   try {
-    const { imdbId } = req.params;
+    const imdbId = cleanImdbId(req.params.imdbId); // Remove "tt" se existir
     const lang = req.query.lang || "pt-br";
     console.log(`📺 Solicitação: series/${imdbId} - Idioma: ${lang}`);
     
@@ -80,6 +85,6 @@ const server = app.listen(PORT, () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
 
-// Timeout para conexões
+// Timeout para conexões longas
 server.keepAliveTimeout = 120000;
 server.headersTimeout = 120000;
