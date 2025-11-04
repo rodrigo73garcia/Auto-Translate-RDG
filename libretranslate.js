@@ -7,38 +7,66 @@ export async function translateText(text, targetLang) {
     
     console.log(`🌐 Traduzindo para: ${langCode}`);
     
-    // Dividir em pedaços se muito grande (máximo 500 caracteres por requisição)
-    const chunks = splitTextIntoChunks(text, 500);
+    // Aumentar tamanho dos chunks para fazer menos requisições (1500 caracteres em vez de 500)
+    const chunks = splitTextIntoChunks(text, 1500);
     console.log(`📦 Dividido em ${chunks.length} pedaços`);
     
     let translatedChunks = [];
     
     for (let i = 0; i < chunks.length; i++) {
-      try {
-        // Usar My Memory Translate (gratuito, sem limite)
-        const response = await axios.get('https://api.mymemory.translated.net/get', {
-          params: {
-            q: chunks[i],
-            langpair: `en|${langCode}`
-          },
-          timeout: 10000
-        });
-        
-        if (response.data.responseStatus === 200) {
-          const translatedText = response.data.responseData.translatedText;
-          translatedChunks.push(translatedText);
-          console.log(`✅ Pedaço ${i + 1}/${chunks.length} traduzido`);
-        } else {
-          console.warn(`⚠️ Pedaço ${i + 1} falhou, usando original`);
-          translatedChunks.push(chunks[i]);
+      let translated = false;
+      let retries = 0;
+      const maxRetries = 3;
+      
+      while (!translated && retries < maxRetries) {
+        try {
+          // Usar My Memory Translate (gratuito)
+          const response = await axios.get('https://api.mymemory.translated.net/get', {
+            params: {
+              q: chunks[i],
+              langpair: `en|${langCode}`
+            },
+            timeout: 15000
+          });
+          
+          if (response.data.responseStatus === 200) {
+            const translatedText = response.data.responseData.translatedText;
+            translatedChunks.push(translatedText);
+            console.log(`✅ Pedaço ${i + 1}/${chunks.length} traduzido`);
+            translated = true;
+          } else {
+            console.warn(`⚠️ Pedaço ${i + 1} falhou (status: ${response.data.responseStatus}), usando original`);
+            translatedChunks.push(chunks[i]);
+            translated = true;
+          }
+        } catch (err) {
+          retries++;
+          
+          if (err.response?.status === 429) {
+            // Rate limit - aguardar mais
+            const waitTime = Math.pow(2, retries) * 1000; // 2s, 4s, 8s
+            console.warn(`⏱️ Rate limit no pedaço ${i + 1}, aguardando ${waitTime}ms antes de tentar novamente...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          } else {
+            console.error(`❌ Erro ao traduzir pedaço ${i + 1} (tentativa ${retries}/${maxRetries}):`, err.message);
+            
+            if (retries >= maxRetries) {
+              // Após 3 tentativas, usa o original
+              translatedChunks.push(chunks[i]);
+              translated = true;
+            } else {
+              // Aguardar antes de tentar novamente
+              const waitTime = Math.pow(2, retries) * 500; // 500ms, 1s, 2s
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+          }
         }
-      } catch (err) {
-        console.error(`❌ Erro ao traduzir pedaço ${i + 1}:`, err.message);
-        translatedChunks.push(chunks[i]); // fallback
       }
       
-      // Aguardar 100ms entre requisições para evitar rate limit
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Aguardar 500ms entre requisições bem-sucedidas para evitar rate limit
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
     }
     
     return translatedChunks.join('\n');
@@ -58,10 +86,10 @@ function splitTextIntoChunks(text, maxChunkSize) {
   for (let line of lines) {
     const lineLength = line.length;
     
-    // Se a linha sozinha é maior que o limite, pula
+    // Se a linha sozinha é maior que o limite, envia mesmo assim
     if (lineLength > maxChunkSize) {
       if (currentChunk) chunks.push(currentChunk.trim());
-      chunks.push(line); // envia mesmo assim
+      chunks.push(line);
       currentChunk = '';
       continue;
     }
