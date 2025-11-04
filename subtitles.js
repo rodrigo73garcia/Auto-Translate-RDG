@@ -6,8 +6,9 @@ const cache = new NodeCache({ stdTTL: 60 * 60 }); // 1h
 
 export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
   console.log(`🎬 Solicitando legendas via API → ${imdbId} → ${targetLang}`);
-
+  
   const cacheKey = `${imdbId}-${targetLang}`;
+  
   if (cache.has(cacheKey)) {
     console.log("⚡ Retornando legenda do cache");
     return cache.get(cacheKey);
@@ -25,15 +26,15 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
       return null;
     }
 
-    // pegar legenda principal em inglês
+    // Pegar legenda principal em inglês
     const mainSub = res.data[0];
     const downloadUrl = mainSub.SubDownloadLink?.replace(".gz", "");
+    
     console.log(`📥 Baixando legenda: ${downloadUrl}`);
-
     const subData = await axios.get(downloadUrl);
     const text = subData.data.toString();
 
-    // traduzir
+    // Traduzir
     const translated = await translateText(text, targetLang);
 
     const translatedSub = {
@@ -45,7 +46,9 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
 
     cache.set(cacheKey, { subtitles: [translatedSub] });
     console.log(`✅ Legenda traduzida para ${targetLang}`);
+    
     return { subtitles: [translatedSub] };
+
   } catch (err) {
     console.error("❌ Erro geral ao buscar/traduzir legenda:", err.message);
     return null;
