@@ -68,12 +68,12 @@ app.get("/configure", (req, res) => {
 
   const labels = {
     en: {
-      title: "Auto-Translate Addon Configuration",
+      title: "Auto-Translate RDG Addon Configuration",
       langLabel: "Select target language:",
       button: "Generate Installation Link"
     },
     pt: {
-      title: "Configuração do Addon Auto-Translate",
+      title: "Configuração do Addon Auto-Translate RDG",
       langLabel: "Selecione o idioma de destino:",
       button: "Gerar link de instalação"
     }
