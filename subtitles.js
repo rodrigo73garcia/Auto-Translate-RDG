@@ -17,20 +17,30 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
   try {
     // API de legendas base
     const apiUrl = `https://rest.opensubtitles.org/search/imdbid-${imdbId}/sublanguageid-eng`;
+    console.log(`🔍 Buscando em: ${apiUrl}`);
+    
     const res = await axios.get(apiUrl, {
       headers: { 
         "User-Agent": "AutoTranslateRDG v2.0.0"
-      }
+      },
+      timeout: 15000
     });
 
-    if (!res.data?.length) {
+    if (!res.data || res.data.length === 0) {
       console.log("🚫 Nenhuma legenda original encontrada.");
       return null;
     }
 
+    console.log(`✅ Encontradas ${res.data.length} legendas`);
+
     // Pegar legenda principal em inglês
     const mainSub = res.data[0];
     const downloadUrl = mainSub.SubDownloadLink?.replace(".gz", "");
+    
+    if (!downloadUrl) {
+      console.log("🚫 URL de download não disponível");
+      return null;
+    }
     
     console.log(`📥 Baixando legenda: ${downloadUrl}`);
     
@@ -45,9 +55,15 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
       timeout: 30000
     });
     
-    const srtContent = subData.data.toString();
+    if (!subData.data) {
+      console.log("🚫 Nenhum conteúdo no arquivo SRT");
+      return null;
+    }
     
-    // Extrair apenas o texto das legendas (remover timestamps, números e publicidade)
+    const srtContent = subData.data.toString();
+    console.log(`📦 Arquivo SRT baixado: ${srtContent.length} caracteres`);
+    
+    // Extrair apenas o texto das legendas
     const textOnly = extractSRTText(srtContent);
     
     if (!textOnly || textOnly.trim().length === 0) {
@@ -68,60 +84,68 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
     };
 
     cache.set(cacheKey, { subtitles: [translatedSub] });
-    console.log(`✅ Legenda traduzida para ${targetLang}`);
+    console.log(`✅ Legenda traduzida para ${targetLang} ✨`);
     
     return { subtitles: [translatedSub] };
 
   } catch (err) {
     console.error("❌ Erro geral ao buscar/traduzir legenda:", err.message);
+    console.error("Stack:", err.stack);
     return null;
   }
 }
 
 // Função para extrair apenas o texto do arquivo SRT
 function extractSRTText(srtContent) {
-  const lines = srtContent.split('\n');
-  const textLines = [];
-  
-  // Lista de palavras e padrões a ignorar (publicidade do OpenSubtitles)
-  const ignorePatterns = [
-    /support.*vip/i,
-    /opensubtitles/i,
-    /www\./i,
-    /http/i,
-    /ads/i,
-    /remove.*ads/i,
-    /^#/
-  ];
+  try {
+    const lines = srtContent.split('\n');
+    const textLines = [];
+    
+    // Lista de palavras e padrões a ignorar
+    const ignorePatterns = [
+      /support.*vip/i,
+      /opensubtitles/i,
+      /www\./i,
+      /http/i,
+      /ads/i,
+      /remove.*ads/i,
+      /^#/
+    ];
 
-  for (let line of lines) {
-    const trimmedLine = line.trim();
-    
-    // Pular linhas vazias, números, timestamps e URLs
-    if (trimmedLine === '' || 
-        /^\d+$/.test(trimmedLine) ||
-        /\d{2}:\d{2}:\d{2}/.test(trimmedLine) ||
-        trimmedLine.startsWith('http')) {
-      continue;
-    }
-    
-    // Pular linhas que correspondem aos padrões de publicidade
-    let shouldSkip = false;
-    for (let pattern of ignorePatterns) {
-      if (pattern.test(trimmedLine)) {
-        shouldSkip = true;
-        break;
+    for (let line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Pular linhas vazias, números, timestamps e URLs
+      if (trimmedLine === '' || 
+          /^\d+$/.test(trimmedLine) ||
+          /\d{2}:\d{2}:\d{2}/.test(trimmedLine) ||
+          trimmedLine.startsWith('http')) {
+        continue;
+      }
+      
+      // Pular linhas que correspondem aos padrões de publicidade
+      let shouldSkip = false;
+      for (let pattern of ignorePatterns) {
+        if (pattern.test(trimmedLine)) {
+          shouldSkip = true;
+          break;
+        }
+      }
+      
+      if (shouldSkip) {
+        continue;
+      }
+      
+      if (trimmedLine.length > 0) {
+        textLines.push(trimmedLine);
       }
     }
-    
-    if (shouldSkip) {
-      continue;
-    }
-    
-    if (trimmedLine.length > 0) {
-      textLines.push(trimmedLine);
-    }
-  }
 
-  return textLines.join('\n');
+    const result = textLines.join('\n');
+    console.log(`✅ Extração SRT concluída: ${result.length} caracteres`);
+    return result;
+  } catch (err) {
+    console.error("❌ Erro ao extrair SRT:", err.message);
+    return srtContent;
+  }
 }
