@@ -1,3 +1,4 @@
+// Auto Translate RDG — subtitles-only com tradução e suporte a "extra" do Stremio
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -8,12 +9,21 @@ const NodeCache = require('node-cache');
 require('dotenv').config();
 
 const app = express();
+app.set('trust proxy', 1); // respeita X-Forwarded-* em proxy (Render)
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 8000;
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+
+// ao gerar links públicos, usa env se houver; senão, deriva do request (corrige hash/host)
+function getBaseUrl(req) {
+  const fromEnv = process.env.PUBLIC_BASE_URL && process.env.PUBLIC_BASE_URL.trim();
+  if (fromEnv) return fromEnv;
+  const proto = (req && req.protocol) || 'http';
+  const host = (req && req.get && req.get('host')) || `localhost:${PORT}`;
+  return `${proto}://${host}`;
+}
 
 const SUBS_DIR = path.join(__dirname, 'subs');
 if (!fs.existsSync(SUBS_DIR)) fs.mkdirSync(SUBS_DIR);
@@ -44,18 +54,21 @@ const TOP20 = [
   { name: 'Persa (Farsi) - fa', value: 'fa' }
 ];
 
+// sanitiza nomes de arquivo
 function safeFilename(str) {
   return String(str).replace(/[^a-z0-9-_.]/gi, '_');
 }
 
+// "upstreams" como CSV -> array normalizado
 function parseUpstreams(input) {
   return String(input || '')
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
-    .map(s => s.replace(/\/+$/, ''));
+    .map(s => s.replace(//+$/, ''));
 }
 
+// obtém upstreams da config (extra) ou do ambiente
 function getConfiguredUpstreams(extraUpstreams) {
   const fromExtra = parseUpstreams(extraUpstreams);
   if (fromExtra.length) return fromExtra;
@@ -63,6 +76,7 @@ function getConfiguredUpstreams(extraUpstreams) {
   return parseUpstreams(env);
 }
 
+// baixa/concatena legendas do(s) upstream(s) Stremio no formato /subtitles/{type}/{id}.json
 async function fetchUpstreamSubtitles(type, id, upstreams) {
   const all = [];
   for (const base of upstreams) {
@@ -76,17 +90,20 @@ async function fetchUpstreamSubtitles(type, id, upstreams) {
   return all;
 }
 
+// prioriza EN; se não houver, devolve a primeira disponível
 function pickPreferredEnglish(subs) {
   if (!subs || !subs.length) return null;
   const en = subs.find(s => (String(s.lang || '').toLowerCase()).startsWith('en'));
   return en || subs[0] || null;
 }
 
+// baixa como texto (.srt ou .vtt convertido pelo upstream) — aqui assume texto utf8
 async function downloadAsSrt(url) {
   const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
   return Buffer.from(resp.data).toString('utf8');
 }
 
+// traduz linha a linha mantendo marcações/tempos
 async function translateText(text, targetLang) {
   try {
     const res = await translate(text, { to: targetLang });
@@ -96,15 +113,28 @@ async function translateText(text, targetLang) {
   }
 }
 
+// extrai "extra" tanto via query (?extra=%7B..%7D) quanto via segmento (/:extra.json)
+function parseExtra(req) {
+  let extra = {};
+  if (req.query && req.query.extra) {
+    try { extra = JSON.parse(req.query.extra); } catch {}
+  }
+  if (!Object.keys(extra).length && req.params && req.params.extra) {
+    try { extra = JSON.parse(decodeURIComponent(req.params.extra)); } catch {}
+  }
+  return extra || {};
+}
+
 app.use('/subs', express.static(SUBS_DIR));
 
+// manifesto JSON — behaviorHints.configurable = true para o Stremio reter configurações
 app.get('/manifest.json', (req, res) => {
+  const base = getBaseUrl(req);
   const targetLang = req.query.targetLang || 'pt-BR';
   const upstreams = req.query.upstreams || '';
-  
-  res.json({
+  const manifest = {
     id: 'org.auto.translate.rdg',
-    version: '1.2.0',
+    version: '1.2.1',
     name: 'Auto Translate RDG',
     description: 'Subtitles-only: lê legendas de addons Stremio, prioriza EN, traduz e serve .srt no idioma escolhido.',
     resources: ['subtitles'],
@@ -126,54 +156,65 @@ app.get('/manifest.json', (req, res) => {
         default: upstreams
       }
     ],
-    behaviorHints: { config_url: `${PUBLIC_BASE_URL}/configure` }
-  });
+    behaviorHints: {
+      configurable: true,
+      configurationRequired: false,
+      config_url: `${base}/configure`
+    }
+  };
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.json(manifest);
 });
 
-app.get('/subtitles/:type/:id.json', async (req, res) => {
+// duas variantes aceitas pelo Stremio: com e sem segmento "extra"
+app.get('/subtitles/:type/:id/:extra.json', subtitlesHandler);
+app.get('/subtitles/:type/:id.json', subtitlesHandler);
+
+// handler principal de legendas
+async function subtitlesHandler(req, res) {
+  const base = getBaseUrl(req);
   const { type, id } = req.params;
-  const targetLang = req.query.targetLang || 'pt-BR';
-  const upstreams = getConfiguredUpstreams(req.query.upstreams);
-  
-  const cacheKey = `${type}_${id}_${targetLang}`;
+  const extra = parseExtra(req);
+  const targetLang = extra.targetLang || extra.lang || req.query.targetLang || 'pt-BR';
+  const upstreams = getConfiguredUpstreams(extra.upstreams || req.query.upstreams);
+
+  const cacheKey = `${type}_${id}_${targetLang}_${upstreams.join('|')}`;
   const cached = cache.get(cacheKey);
   if (cached) return res.json({ subtitles: [cached] });
 
   try {
     if (!upstreams.length) return res.json({ subtitles: [] });
-    
+
     const list = await fetchUpstreamSubtitles(type, id, upstreams);
     const chosen = pickPreferredEnglish(list);
     if (!chosen || !chosen.url) return res.json({ subtitles: [] });
 
     const srtText = await downloadAsSrt(chosen.url);
-    const lines = srtText.split('\n');
-    const translated = [];
-    
+    const lines = srtText.split('
+');
+    const out = [];
     for (const line of lines) {
-      if (/^\d+$/.test(line) || line.includes('-->') || line.trim() === '') {
-        translated.push(line);
-      } else {
-        const trans = await translateText(line, targetLang);
-        translated.push(trans);
-      }
+      if (/^d+$/.test(line) || line.includes('-->') || line.trim() === '') out.push(line);
+      else out.push(await translateText(line, targetLang));
     }
 
     const fname = safeFilename(`${id}_${targetLang}.srt`);
-    const fpath = path.join(SUBS_DIR, fname);
-    fs.writeFileSync(fpath, translated.join('\n'), 'utf8');
+    fs.writeFileSync(path.join(SUBS_DIR, fname), out.join('
+'), 'utf8');
 
-    const url = `${PUBLIC_BASE_URL}/subs/${fname}`;
+    const url = `${base}/subs/${fname}`;
     const subObj = { id: `${id}-${targetLang}-rdg`, lang: targetLang, url };
     cache.set(cacheKey, subObj);
-    
-    res.json({ subtitles: [subObj] });
-  } catch (e) {
-    res.json({ subtitles: [] });
-  }
-});
 
+    return res.json({ subtitles: [subObj] });
+  } catch {
+    return res.json({ subtitles: [] });
+  }
+}
+
+// página de configuração com link de instalação absoluto e previsível
 app.get('/configure', (req, res) => {
+  const base = getBaseUrl(req);
   const targetLang = req.query.targetLang || 'pt-BR';
   const upstreams = req.query.upstreams || '';
 
@@ -182,9 +223,9 @@ app.get('/configure', (req, res) => {
     return `<option ${sel} value="${opt.value}">${opt.name}</option>`;
   }).join('');
 
-  const installUrl = `${PUBLIC_BASE_URL}/manifest.json?targetLang=${encodeURIComponent(targetLang)}&upstreams=${encodeURIComponent(upstreams)}`;
+  const installUrl = `${base}/manifest.json?targetLang=${encodeURIComponent(targetLang)}&upstreams=${encodeURIComponent(upstreams)}`;
   const html = `
-    <html><head><meta charset="utf-8"><title>Auto Translate RDG</title></head>
+    <html><head><meta charset="utf-8"><title>Auto Translate RDG - Configurar</title></head>
     <body style="font-family: system-ui, sans-serif; padding: 24px; max-width: 880px;">
       <h2>Auto Translate RDG</h2>
       <form method="GET" action="/configure" style="margin-bottom:16px">
@@ -196,8 +237,9 @@ app.get('/configure', (req, res) => {
         <br/><br/>
         <button type="submit">Gerar link de instalação</button>
       </form>
-      <p>Instalar no Stremio:</p>
+      <p>Instalar no Stremio usando o manifest:</p>
       <pre style="white-space:pre-wrap; background:#f7f7f7; padding:12px; border-radius:8px">${installUrl}</pre>
+      <p><a href="${installUrl}">Abrir manifest.json</a></p>
     </body></html>
   `;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -207,6 +249,7 @@ app.get('/configure', (req, res) => {
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.listen(PORT, () => {
+  const base = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
   console.log(`Auto Translate RDG rodando na porta ${PORT}`);
-  console.log(`Página de configuração: ${PUBLIC_BASE_URL}/configure`);
+  console.log(`Página de configuração: ${base}/configure`);
 });
