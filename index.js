@@ -20,8 +20,8 @@ if (!fs.existsSync(SUBS_DIR)) fs.mkdirSync(SUBS_DIR);
 
 // Upstreams fixos
 const defaultUpstreams = [
-  "https://opensubtitles-v3.stremio.online",
-  "https://legendas-tv.stremio.online"
+  "https://opensubtitles.strem.fun",
+  "https://legendas.tv.strem.fun"
 ];
 
 // LibreTranslate endpoint
