@@ -5,52 +5,30 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const LIBRETRANSLATE_API = process.env.LIBRETRANSLATE_API || "https://libretranslate.com";
 
-const STREMIO_SOURCES = [
-  "https://opensubtitles.strem.fun",
-  "https://kiters.strem.fun",
-  "https://subs.strem.fun",
-  "https://spanish.strem.fun",
-  "https://v3stremio.herokuapp.com"
-];
+// User-Agent exigido pelo OpenSubtitles API
+const USER_AGENT = "TemporaryUserAgentForRDG-TranslateAddon";
 
-// função auxiliar para fetch com fallback via proxy
-async function fetchWithProxy(url) {
+async function fetchOpenSubtitles(imdbId) {
+  const imdbNum = imdbId.replace("tt", "");
+  const url = `https://rest.opensubtitles.org/search/imdbid-${imdbNum}`;
+  console.log(`🔍 Buscando legendas em: ${url}`);
+
   try {
-    const res = await fetch(url, { timeout: 15000 });
-    if (res.ok) return await res.json();
-    throw new Error(`HTTP ${res.status}`);
+    const res = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT },
+      timeout: 20000,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const subs = await res.json();
+    console.log(`✅ ${subs.length} legendas encontradas`);
+    return subs;
   } catch (err) {
-    console.log(`⚠️ Erro direto, tentando proxy para ${url}`);
-    try {
-      // tenta proxy pelo allorigins
-      const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-      const resProxy = await fetch(proxied, { timeout: 15000 });
-      if (resProxy.ok) return await resProxy.json();
-      throw new Error(`Proxy HTTP ${resProxy.status}`);
-    } catch (err2) {
-      console.log(`❌ Erro via proxy: ${err2.message}`);
-      return null;
-    }
+    console.log(`❌ Erro ao buscar em OpenSubtitles: ${err.message}`);
+    return [];
   }
 }
 
-// busca legendas de múltiplas fontes
-async function fetchSubtitles(imdbId, type = "movie") {
-  for (const base of STREMIO_SOURCES) {
-    const url = `${base}/subtitles/${type}/${imdbId}.json`;
-    console.log(`🔍 Buscando legendas em: ${url}`);
-    const json = await fetchWithProxy(url);
-    if (json && json.subtitles && json.subtitles.length > 0) {
-      console.log(`✅ Encontradas ${json.subtitles.length} legendas em ${base}`);
-      return json.subtitles;
-    }
-  }
-  console.log("🚫 Nenhuma legenda encontrada em nenhuma fonte.");
-  return [];
-}
-
-// traduz texto para pt-BR
-async function translateText(text) {
+async function translateText(text, targetLang = "pt") {
   try {
     const res = await fetch(`${LIBRETRANSLATE_API}/translate`, {
       method: "POST",
@@ -58,9 +36,9 @@ async function translateText(text) {
       body: JSON.stringify({
         q: text,
         source: "en",
-        target: "pt",
-        format: "text"
-      })
+        target: targetLang,
+        format: "text",
+      }),
     });
     const data = await res.json();
     return data.translatedText || text;
@@ -71,28 +49,30 @@ async function translateText(text) {
 }
 
 app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
-  const { imdbId, type } = req.params;
-  console.log(`🎬 Solicitando legendas para ${imdbId} → tradução para pt-BR`);
-  
-  const subs = await fetchSubtitles(imdbId, type);
-  if (subs.length === 0) return res.json({ subtitles: [] });
+  const { imdbId } = req.params;
+  const targetLang = (req.query.lang || "pt-BR").toLowerCase();
 
-  const translatedSubs = await Promise.all(subs.slice(0, 3).map(async (sub) => {
-    const translatedLang = await translateText(sub.lang);
-    return {
-      ...sub,
-      lang: `${translatedLang} (traduzido)`,
-      url: sub.url
-    };
-  }));
+  console.log(`🎬 Solicitando legendas para ${imdbId} → tradução para ${targetLang}`);
 
-  res.json({ subtitles: translatedSubs });
+  const subs = await fetchOpenSubtitles(imdbId);
+  if (!subs.length) return res.json({ subtitles: [] });
+
+  const englishSub = subs.find(s => s.language === "en") || subs[0];
+  const translatedName = await translateText(englishSub.language, targetLang);
+
+  const result = [
+    {
+      id: "auto-translated",
+      lang: `${translatedName} (traduzido)`,
+      url: englishSub.url,
+    },
+  ];
+
+  res.json({ subtitles: result });
 });
 
 app.get("/", (req, res) => {
-  res.send("🟢 Servidor de tradução de legendas ativo e com proxy!");
+  res.send("🟢 Addon ativo — usando OpenSubtitles REST API + LibreTranslate!");
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
