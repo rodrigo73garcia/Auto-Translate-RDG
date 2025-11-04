@@ -40,7 +40,18 @@ app.get("/manifest.json", (req, res) => {
   }
 });
 
-// Helper para remover prefixo "tt" do imdbId
+// Rota de catálogo (vazio, mas necessário para Stremio reconhecer)
+app.get("/catalog/movie/default.json", (req, res) => {
+  console.log("📚 Catálogo solicitado");
+  res.json({ metas: [] });
+});
+
+app.get("/catalog/series/default.json", (req, res) => {
+  console.log("📚 Catálogo de séries solicitado");
+  res.json({ metas: [] });
+});
+
+// Helper para remover prefixo "tt"
 function cleanImdbId(id) {
   return id.replace(/^tt/, "");
 }
@@ -48,7 +59,7 @@ function cleanImdbId(id) {
 // Rota para legendas de filmes
 app.get("/subtitles/movie/:imdbId.json", async (req, res) => {
   try {
-    const imdbId = cleanImdbId(req.params.imdbId); // Remove "tt" se existir
+    const imdbId = cleanImdbId(req.params.imdbId);
     const lang = req.query.lang || "pt-br";
     console.log(`🎬 Solicitação: movie/${imdbId} - Idioma: ${lang}`);
     
@@ -63,7 +74,7 @@ app.get("/subtitles/movie/:imdbId.json", async (req, res) => {
 // Rota para legendas de séries
 app.get("/subtitles/series/:imdbId.json", async (req, res) => {
   try {
-    const imdbId = cleanImdbId(req.params.imdbId); // Remove "tt" se existir
+    const imdbId = cleanImdbId(req.params.imdbId);
     const lang = req.query.lang || "pt-br";
     console.log(`📺 Solicitação: series/${imdbId} - Idioma: ${lang}`);
     
@@ -75,16 +86,15 @@ app.get("/subtitles/series/:imdbId.json", async (req, res) => {
   }
 });
 
-// Error handler middleware
+// Error handler
 app.use((err, req, res, next) => {
   console.error("❌ Erro global:", err.message);
-  res.status(500).json({ error: "Erro no servidor", message: err.message });
+  res.status(500).json({ error: "Erro no servidor" });
 });
 
 const server = app.listen(PORT, () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
 
-// Timeout para conexões longas
 server.keepAliveTimeout = 120000;
 server.headersTimeout = 120000;
