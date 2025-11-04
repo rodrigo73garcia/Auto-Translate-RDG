@@ -2,81 +2,80 @@ import axios from "axios";
 import NodeCache from "node-cache";
 import { translateText } from "./translator.js";
 
-const cache = new NodeCache({ stdTTL: 60 * 60 }); // 1h
+const cache = new NodeCache({ stdTTL: 60 * 60 });
 
 export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
-  console.log(`🎬 Solicitando legendas via API → ${imdbId} → ${targetLang}`);
+  console.log(`\n🎬 FETCH REQUEST: ${imdbId} | Lang: ${targetLang}`);
 
   const cacheKey = `${imdbId}-${targetLang}`;
   if (cache.has(cacheKey)) {
-    console.log("⚡ Retornando legenda do cache");
+    console.log("⚡ CACHE HIT");
     return cache.get(cacheKey);
   }
 
   try {
     const apiUrl = `https://rest.opensubtitles.org/search/imdbid-${imdbId}/sublanguageid-eng`;
-    console.log(`🔍 Buscando em: ${apiUrl}`);
+    console.log(`🔍 SEARCHING: ${apiUrl}`);
 
     const res = await axios.get(apiUrl, {
-      headers: { "User-Agent": "AutoTranslateRDG v2.0.0" },
+      headers: { "User-Agent": "AutoTranslateRDG/2.0" },
       timeout: 15000
     });
 
-    if (!res.data || res.data.length === 0) {
-      console.log("🚫 Nenhuma legenda original encontrada.");
+    if (!res.data?.length) {
+      console.log("🚫 NO SUBTITLES FOUND");
       return null;
     }
 
-    console.log(`✅ Encontradas ${res.data.length} legendas`);
+    console.log(`✅ FOUND ${res.data.length} subtitles`);
     const mainSub = res.data[0];
     const downloadUrl = mainSub.SubDownloadLink?.replace(".gz", "");
+
     if (!downloadUrl) {
-      console.log("🚫 URL de download não disponível");
+      console.log("🚫 NO DOWNLOAD URL");
       return null;
     }
 
-    console.log(`📥 Baixando legenda: ${downloadUrl}`);
+    console.log(`📥 DOWNLOADING: ${downloadUrl.substring(0, 80)}...`);
     const subData = await axios.get(downloadUrl, {
       headers: {
-        "User-Agent": "AutoTranslateRDG v2.0.0",
-        "Referer": "https://www.opensubtitles.org/",
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.9"
+        "User-Agent": "AutoTranslateRDG/2.0",
+        "Referer": "https://www.opensubtitles.org/"
       },
       timeout: 30000
     });
 
-    if (!subData.data) {
-      console.log("🚫 Nenhum conteúdo no arquivo SRT");
-      return null;
-    }
-
     const srtContent = subData.data.toString();
-    console.log(`📦 Arquivo SRT baixado: ${srtContent.length} caracteres`);
+    console.log(`📦 SRT SIZE: ${srtContent.length} chars`);
 
     const textOnly = extractSRTText(srtContent);
-    if (!textOnly || textOnly.trim().length === 0) {
-      console.log("🚫 Nenhum texto extraído do arquivo SRT.");
+    if (!textOnly?.trim()) {
+      console.log("🚫 NO TEXT EXTRACTED");
       return null;
     }
 
-    console.log(`📄 Texto extraído: ${textOnly.substring(0, 100)}...`);
+    console.log(`📄 EXTRACTED: ${textOnly.length} chars`);
+    console.log(`📄 SAMPLE: ${textOnly.substring(0, 80)}...`);
 
     const translated = await translateText(textOnly, targetLang);
 
-    const translatedSub = {
-      id: "auto-translated",
-      lang: `${targetLang} (Auto Translate RDG)`,
-      url: mainSub.SubDownloadLink,
-      originalLang: mainSub.LanguageName
+    const result = {
+      subtitles: [
+        {
+          id: "auto-translated",
+          lang: `${targetLang} (Auto Translate RDG)`,
+          url: mainSub.SubDownloadLink,
+          originalLang: mainSub.LanguageName
+        }
+      ]
     };
 
-    cache.set(cacheKey, { subtitles: [translatedSub] });
-    console.log(`✅ Legenda traduzida para ${targetLang} ✨`);
+    cache.set(cacheKey, result);
+    console.log(`✅ TRANSLATION COMPLETE`);
 
-    return { subtitles: [translatedSub] };
+    return result;
   } catch (err) {
-    console.error("❌ Erro geral ao buscar/traduzir legenda:", err.message);
+    console.error("❌ FETCH ERROR:", err.message);
     return null;
   }
 }
@@ -90,29 +89,19 @@ function extractSRTText(srtContent) {
       /opensubtitles/i,
       /www\./i,
       /http/i,
-      /ads/i,
-      /remove.*ads/i,
-      /^#/
+      /ads/i
     ];
 
     for (const line of lines) {
       const t = line.trim();
-      if (
-        t === "" ||
-        /^\d+$/.test(t) ||
-        /\d{2}:\d{2}:\d{2}/.test(t) ||
-        t.startsWith("http")
-      ) {
-        continue;
-      }
+      if (t === "" || /^\d+$/.test(t) || /\d{2}:\d{2}:\d{2}/.test(t) || t.startsWith("http")) continue;
       if (ignorePatterns.some(p => p.test(t))) continue;
       textLines.push(t);
     }
-    const out = textLines.join("\n");
-    console.log(`✅ Extração SRT concluída: ${out.length} caracteres`);
-    return out;
+
+    return textLines.join("\n");
   } catch (e) {
-    console.error("❌ Erro ao extrair SRT:", e.message);
+    console.error("❌ EXTRACT ERROR:", e.message);
     return srtContent;
   }
 }
