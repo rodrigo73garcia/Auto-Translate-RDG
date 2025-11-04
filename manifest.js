@@ -1,41 +1,46 @@
 import { TRANSLATION_LANGUAGES } from "./config.js";
 
 export function generateManifest(lang = "pt-br") {
+  // Normalizar código de idioma
+  const langCode = lang === "Português (Brasil)" || lang === "pt-br" ? "pt-BR" : lang;
+
   const manifest = {
-    id: "org.rdg.autotranslate",
+    // ========== CAMPOS OBRIGATÓRIOS ==========
+    id: "org.rdg.autotranslate", 
     version: "2.0.0",
     name: "Auto Translate RDG",
-    description: "Traduz automaticamente legendas para o idioma selecionado usando Google Translate (gratuito).",
-    logo: "https://auto-translate-rdg.onrender.com/icon.png",
-    background: "https://auto-translate-rdg.onrender.com/bg.jpg",
-    contactEmail: "rdgaddons@outlook.com",
+    description: "Traduz legendas automaticamente para português e outros idiomas",
     
-    // Campos essenciais para Stremio reconhecer
-    resources: ["subtitles"],
+    // ========== RECURSOS E TIPOS ==========
+    resources: ["subtitles"],  // Array obrigatório
     types: ["movie", "series"],
-    idPrefixes: ["tt"],
+    idPrefixes: ["tt"],  // Stremio passa IMDb IDs com "tt"
     
-    behaviorHints: {
-      configurable: true,
-      configurationRequired: false
-    },
+    // ========== CATALOGS (necessário, mesmo vazio) ==========
+    catalogs: [],  // Array vazio é válido
     
-    // Configuração de idioma
+    // ========== CONFIGURAÇÃO DE IDIOMA ==========
     config: [
       {
         key: "language",
-        label: "Idioma das Legendas",
+        label: "Subtitle Language",
         type: "select",
-        default: "pt-br",
+        default: "pt-BR",
         options: TRANSLATION_LANGUAGES.map(l => ({
-          key: l.code,
+          key: l.code.toUpperCase() === "PT-BR" ? "pt-BR" : l.code,
           label: l.name
         }))
       }
     ],
     
-    // Importante: addon deve responder a catalog mesmo que vazio
-    catalogs: []
+    // ========== OPCIONAL MAS RECOMENDADO ==========
+    logo: "https://auto-translate-rdg.onrender.com/icon.png",
+    background: "https://auto-translate-rdg.onrender.com/bg.jpg",
+    contactEmail: "rdgaddons@outlook.com",
+    behaviorHints: {
+      configurable: true,
+      configurationRequired: false
+    }
   };
 
   return manifest;
