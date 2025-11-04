@@ -9,91 +9,98 @@ const app = express();
 
 app.use(cors());
 app.use(bodyParser.json());
+app.use(bodyParser.text());
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
-// Health check
+// ============ HEALTH CHECK ============
 app.get("/health", (req, res) => {
-  console.log("✅ Health check recebido");
-  res.status(200).json({ status: "ok", message: "Auto Translate RDG is running!" });
+  console.log("✅ HEALTH CHECK");
+  res.json({ status: "ok", message: "Auto Translate RDG running" });
 });
 
-// Página inicial
-app.get("/", (req, res) => {
-  try {
-    res.sendFile(process.cwd() + "/public/index.html");
-  } catch (err) {
-    console.error("❌ Erro ao servir index.html:", err.message);
-    res.json({ message: "Auto Translate RDG - Stremio Addon" });
-  }
-});
-
-// Rota do manifest
+// ============ MANIFEST ============
 app.get("/manifest.json", (req, res) => {
   try {
+    console.log("📋 MANIFEST REQUEST");
     const lang = req.query.lang || "pt-br";
-    console.log(`📋 Manifest solicitado: ${lang}`);
     const manifest = generateManifest(lang);
+    console.log("📋 MANIFEST RESPONSE:", JSON.stringify(manifest));
     res.json(manifest);
   } catch (err) {
-    console.error("❌ Erro ao gerar manifest:", err.message);
-    res.status(500).json({ error: "Erro ao gerar manifest" });
+    console.error("❌ MANIFEST ERROR:", err.message);
+    res.status(500).json({ error: "Manifest error" });
   }
 });
 
-// Rota de catálogo (vazio, mas necessário para Stremio reconhecer)
+// ============ CATALOGS ============
 app.get("/catalog/movie/default.json", (req, res) => {
-  console.log("📚 Catálogo solicitado");
+  console.log("📚 CATALOG MOVIE REQUEST");
   res.json({ metas: [] });
 });
 
 app.get("/catalog/series/default.json", (req, res) => {
-  console.log("📚 Catálogo de séries solicitado");
+  console.log("📚 CATALOG SERIES REQUEST");
   res.json({ metas: [] });
 });
 
-// Helper para remover prefixo "tt"
+// ============ SUBTITLES ============
 function cleanImdbId(id) {
   return id.replace(/^tt/, "");
 }
 
-// Rota para legendas de filmes
 app.get("/subtitles/movie/:imdbId.json", async (req, res) => {
   try {
     const imdbId = cleanImdbId(req.params.imdbId);
-    const lang = req.query.lang || "pt-br";
-    console.log(`🎬 Solicitação: movie/${imdbId} - Idioma: ${lang}`);
+    const lang = req.query.lang || "pt-BR";
+    
+    console.log(`🎬 SUBTITLE REQUEST MOVIE`);
+    console.log(`   IMDb ID: ${imdbId}`);
+    console.log(`   Language: ${lang}`);
     
     const result = await fetchAndTranslateSubtitle(imdbId, lang);
+    
+    console.log(`   Result: ${result ? "SUCCESS" : "NULL"}`);
     res.json(result || { subtitles: [] });
   } catch (err) {
-    console.error("❌ Erro na rota /subtitles/movie:", err.message);
+    console.error("❌ SUBTITLE MOVIE ERROR:", err.message, err.stack);
     res.json({ subtitles: [] });
   }
 });
 
-// Rota para legendas de séries
 app.get("/subtitles/series/:imdbId.json", async (req, res) => {
   try {
     const imdbId = cleanImdbId(req.params.imdbId);
-    const lang = req.query.lang || "pt-br";
-    console.log(`📺 Solicitação: series/${imdbId} - Idioma: ${lang}`);
+    const lang = req.query.lang || "pt-BR";
+    
+    console.log(`📺 SUBTITLE REQUEST SERIES`);
+    console.log(`   IMDb ID: ${imdbId}`);
+    console.log(`   Language: ${lang}`);
     
     const result = await fetchAndTranslateSubtitle(imdbId, lang);
+    
+    console.log(`   Result: ${result ? "SUCCESS" : "NULL"}`);
     res.json(result || { subtitles: [] });
   } catch (err) {
-    console.error("❌ Erro na rota /subtitles/series:", err.message);
+    console.error("❌ SUBTITLE SERIES ERROR:", err.message, err.stack);
     res.json({ subtitles: [] });
   }
 });
 
-// Error handler
-app.use((err, req, res, next) => {
-  console.error("❌ Erro global:", err.message);
-  res.status(500).json({ error: "Erro no servidor" });
+// ============ HOME ============
+app.get("/", (req, res) => {
+  res.json({ message: "Auto Translate RDG Stremio Addon" });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando na porta ${PORT}`);
+// ============ ERROR HANDLER ============
+app.use((err, req, res, next) => {
+  console.error("❌ GLOBAL ERROR:", err.message);
+  res.status(500).json({ error: "Server error" });
+});
+
+// ============ START SERVER ============
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ SERVER RUNNING ON PORT ${PORT}`);
 });
 
 server.keepAliveTimeout = 120000;
