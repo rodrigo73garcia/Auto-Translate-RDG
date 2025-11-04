@@ -1,4 +1,3 @@
-// Auto Translate RDG — subtitles-only com tradução e suporte a "extra" do Stremio
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -27,51 +26,33 @@ function getBaseUrl(req) {
 const SUBS_DIR = path.join(__dirname, 'subs');
 if (!fs.existsSync(SUBS_DIR)) fs.mkdirSync(SUBS_DIR);
 
-const CACHE_TTL_SEC = 60 * 60 * 24 * 7;
-const cache = new NodeCache({ stdTTL: CACHE_TTL_SEC });
+const cache = new NodeCache({ stdTTL: 60 * 60 * 24 * 7 });
 
 const TOP20 = [
-  { name: 'Inglês - en', value: 'en' },
-  { name: 'Chinês (Mandarim) - zh-CN', value: 'zh-CN' },
-  { name: 'Hindi - hi', value: 'hi' },
-  { name: 'Espanhol - es', value: 'es' },
-  { name: 'Francês - fr', value: 'fr' },
-  { name: 'Árabe - ar', value: 'ar' },
-  { name: 'Bengali - bn', value: 'bn' },
-  { name: 'Português (Brasil) - pt-BR', value: 'pt-BR' },
-  { name: 'Russo - ru', value: 'ru' },
-  { name: 'Urdu - ur', value: 'ur' },
-  { name: 'Indonésio - id', value: 'id' },
-  { name: 'Alemão - de', value: 'de' },
-  { name: 'Japonês - ja', value: 'ja' },
-  { name: 'Suaíli - sw', value: 'sw' },
-  { name: 'Marati - mr', value: 'mr' },
-  { name: 'Télugo - te', value: 'te' },
-  { name: 'Turco - tr', value: 'tr' },
-  { name: 'Tâmil - ta', value: 'ta' },
-  { name: 'Italiano - it', value: 'it' },
-  { name: 'Persa (Farsi) - fa', value: 'fa' }
+  { name: 'Inglês - en', value: 'en' }, { name: 'Chinês (Mandarim) - zh-CN', value: 'zh-CN' },
+  { name: 'Hindi - hi', value: 'hi' }, { name: 'Espanhol - es', value: 'es' },
+  { name: 'Francês - fr', value: 'fr' }, { name: 'Árabe - ar', value: 'ar' },
+  { name: 'Bengali - bn', value: 'bn' }, { name: 'Português (Brasil) - pt-BR', value: 'pt-BR' },
+  { name: 'Russo - ru', value: 'ru' }, { name: 'Urdu - ur', value: 'ur' },
+  { name: 'Indonésio - id', value: 'id' }, { name: 'Alemão - de', value: 'de' },
+  { name: 'Japonês - ja', value: 'ja' }, { name: 'Suaíli - sw', value: 'sw' },
+  { name: 'Marati - mr', value: 'mr' }, { name: 'Télugo - te', value: 'te' },
+  { name: 'Turco - tr', value: 'tr' }, { name: 'Tâmil - ta', value: 'ta' },
+  { name: 'Italiano - it', value: 'it' }, { name: 'Persa (Farsi) - fa', value: 'fa' }
 ];
 
 function safeFilename(str) {
   return String(str).replace(/[^a-z0-9-_.]/gi, '_');
 }
-
 function parseUpstreams(input) {
-  return String(input || '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
-    .map(s => s.replace(//+$/, ''));
+  return String(input || '').split(',').map(s => s.trim()).filter(Boolean).map(s => s.replace(//+$/, ''));
 }
-
 function getConfiguredUpstreams(extraUpstreams) {
   const fromExtra = parseUpstreams(extraUpstreams);
   if (fromExtra.length) return fromExtra;
   const env = process.env.STREMIO_SUBS_BASES || 'https://opensubtitles-v3.stremio.online';
   return parseUpstreams(env);
 }
-
 async function fetchUpstreamSubtitles(type, id, upstreams) {
   const all = [];
   for (const base of upstreams) {
@@ -84,32 +65,22 @@ async function fetchUpstreamSubtitles(type, id, upstreams) {
   }
   return all;
 }
-
 function pickPreferredEnglish(subs) {
   if (!subs || !subs.length) return null;
   const en = subs.find(s => (String(s.lang || '').toLowerCase()).startsWith('en'));
   return en || subs[0] || null;
 }
-
 async function downloadAsSrt(url) {
   const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
   return Buffer.from(resp.data).toString('utf8');
 }
-
 async function translateText(text, targetLang) {
-  try {
-    const res = await translate(text, { to: targetLang });
-    return res.text;
-  } catch {
-    return text;
-  }
+  try { const res = await translate(text, { to: targetLang }); return res.text; }
+  catch { return text; }
 }
-
 function parseExtra(req) {
   let extra = {};
-  if (req.query && req.query.extra) {
-    try { extra = JSON.parse(req.query.extra); } catch {}
-  }
+  if (req.query && req.query.extra) { try { extra = JSON.parse(req.query.extra); } catch {} }
   if (!Object.keys(extra).length && req.params && req.params.extra) {
     try { extra = JSON.parse(decodeURIComponent(req.params.extra)); } catch {}
   }
@@ -124,7 +95,7 @@ app.get('/manifest.json', (req, res) => {
   const upstreams = req.query.upstreams || '';
   const manifest = {
     id: 'org.auto.translate.rdg',
-    version: '1.2.2',
+    version: '1.2.3',
     name: 'Auto Translate RDG',
     description: 'Subtitles-only: lê legendas de addons Stremio, prioriza EN, traduz e serve .srt no idioma escolhido.',
     resources: ['subtitles'],
@@ -188,12 +159,10 @@ app.get('/configure', (req, res) => {
   const base = getBaseUrl(req);
   const targetLang = req.query.targetLang || 'pt-BR';
   const upstreams = req.query.upstreams || '';
-
   const optionsHtml = TOP20.map(opt => {
     const sel = opt.value === targetLang ? 'selected' : '';
     return `<option ${sel} value="${opt.value}">${opt.name}</option>`;
   }).join('');
-
   const installUrl = `${base}/manifest.json?targetLang=${encodeURIComponent(targetLang)}&upstreams=${encodeURIComponent(upstreams)}`;
   const html = `
     <html><head><meta charset="utf-8"><title>Auto Translate RDG - Configurar</title></head>
