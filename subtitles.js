@@ -47,7 +47,7 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
     
     const srtContent = subData.data.toString();
     
-    // Extrair apenas o texto das legendas (remover timestamps e números)
+    // Extrair apenas o texto das legendas (remover timestamps, números e publicidade)
     const textOnly = extractSRTText(srtContent);
     
     if (!textOnly || textOnly.trim().length === 0) {
@@ -59,9 +59,6 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
     
     // Traduzir
     const translated = await translateText(textOnly, targetLang);
-
-    // Reconstruir arquivo SRT com texto traduzido
-    const translatedSRT = reconstructSRT(srtContent, textOnly, translated);
 
     const translatedSub = {
       id: "auto-translated",
@@ -85,28 +82,46 @@ export async function fetchAndTranslateSubtitle(imdbId, targetLang) {
 function extractSRTText(srtContent) {
   const lines = srtContent.split('\n');
   const textLines = [];
-  let skipNext = false;
+  
+  // Lista de palavras e padrões a ignorar (publicidade do OpenSubtitles)
+  const ignorePatterns = [
+    /support.*vip/i,
+    /opensubtitles/i,
+    /www\./i,
+    /http/i,
+    /ads/i,
+    /remove.*ads/i,
+    /^#/
+  ];
 
   for (let line of lines) {
-    // Pular linhas em branco, números e timestamps
-    if (line.trim() === '' || 
-        /^\d+$/.test(line.trim()) ||
-        /\d{2}:\d{2}:\d{2}/.test(line)) {
-      skipNext = false;
+    const trimmedLine = line.trim();
+    
+    // Pular linhas vazias, números, timestamps e URLs
+    if (trimmedLine === '' || 
+        /^\d+$/.test(trimmedLine) ||
+        /\d{2}:\d{2}:\d{2}/.test(trimmedLine) ||
+        trimmedLine.startsWith('http')) {
       continue;
     }
     
-    if (line.trim().length > 0) {
-      textLines.push(line);
+    // Pular linhas que correspondem aos padrões de publicidade
+    let shouldSkip = false;
+    for (let pattern of ignorePatterns) {
+      if (pattern.test(trimmedLine)) {
+        shouldSkip = true;
+        break;
+      }
+    }
+    
+    if (shouldSkip) {
+      continue;
+    }
+    
+    if (trimmedLine.length > 0) {
+      textLines.push(trimmedLine);
     }
   }
 
   return textLines.join('\n');
-}
-
-// Função para reconstruir o arquivo SRT (mantém estrutura original)
-function reconstructSRT(originalSRT, originalText, translatedText) {
-  // Por simplicidade, retorna o SRT original
-  // Em produção, você poderia remapear o texto traduzido
-  return originalSRT;
 }
