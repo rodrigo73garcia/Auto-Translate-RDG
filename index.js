@@ -19,15 +19,21 @@ const subtitlesDir = path.join(__dirname, "subtitles");
 await fs.ensureDir(subtitlesDir);
 
 // =======================
-// Função para obter legenda original do OpenSubtitles
+// 🔹 Função para obter legenda original do OpenSubtitles
 // =======================
-async function getSubtitle(imdbId, type = "movie", season = null, episode = null) {
-  const cleanId = imdbId.replace("tt", "").split(":")[0];
+async function getSubtitle(imdbId) {
+  const parts = imdbId.replace("tt", "").split(":");
+  const cleanId = parts[0];
+  const season = parts[1];
+  const episode = parts[2];
 
-  // 🔧 Construção inteligente da URL — inclui temporada/episódio se for série
-  let url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
-  if (type === "series" && season && episode) {
+  let url;
+  if (season && episode) {
+    // Série
     url = `https://rest.opensubtitles.org/search/episode-${episode}/season-${season}/imdbid-${cleanId}/sublanguageid-eng`;
+  } else {
+    // Filme
+    url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
   }
 
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
@@ -61,7 +67,7 @@ async function getSubtitle(imdbId, type = "movie", season = null, episode = null
 }
 
 // =======================
-// Traduz legenda (com blocos de até 4500 chars)
+// 🔹 Traduz legenda (em blocos de até 4500 caracteres)
 // =======================
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
@@ -105,7 +111,7 @@ async function translateSubtitle(content, targetLang = "pt") {
 }
 
 // =======================
-// Manifest do addon
+// 🔹 Manifest do Addon (Stremio)
 // =======================
 app.get("/manifest.json", (req, res) => {
   const manifest = {
@@ -122,28 +128,20 @@ app.get("/manifest.json", (req, res) => {
 });
 
 // =======================
-// Rota principal de legendas
+// 🔹 Rota principal de legendas
 // =======================
 app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
-  const { type, imdbId } = req.params;
+  const { imdbId } = req.params;
   const targetLang = req.query.lang || "pt";
-
-  // 📺 Detecta temporada e episódio
-  const parts = imdbId.split(":");
-  const cleanId = parts[0].replace("tt", "");
-  const season = parts[1] || null;
-  const episode = parts[2] || null;
-
-  // 🔑 Cache único por episódio/temporada
-  const cacheKey = season && episode ? `${cleanId}:${season}:${episode}_${targetLang}` : `${cleanId}_${targetLang}`;
-  const cachePath = path.join(subtitlesDir, `${cacheKey}.srt`);
+  const cleanId = imdbId.replace("tt", "").replace(/:/g, "_");
+  const cachePath = path.join(subtitlesDir, `${cleanId}_${targetLang}.srt`);
 
   console.log(`[${new Date().toISOString()}] 🔹 Requisição recebida -> imdb: ${imdbId}`);
 
   try {
     if (!(await fs.pathExists(cachePath))) {
       console.log(`🕐 Nenhum cache encontrado. Buscando e traduzindo...`);
-      const original = await getSubtitle(imdbId, type, season, episode);
+      const original = await getSubtitle(imdbId);
       const translated = await translateSubtitle(original, targetLang);
       await fs.writeFile(cachePath, translated, "utf-8");
       console.log(`💾 Legenda traduzida salva em cache: ${path.basename(cachePath)}`);
@@ -154,7 +152,7 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
     const body = [
       {
         id: `${imdbId}:${targetLang}`,
-        url: `${req.protocol}://${req.get("host")}/subtitles/file/${path.basename(cachePath)}`,
+        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cleanId}_${targetLang}.srt`,
         lang: targetLang,
         name: `Auto-Translated (${targetLang.toUpperCase()})`,
       },
@@ -168,7 +166,7 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
 });
 
 // =======================
-// Rota para servir o arquivo SRT traduzido
+// 🔹 Servir arquivo SRT traduzido
 // =======================
 app.get("/subtitles/file/:file", async (req, res) => {
   const file = path.join(subtitlesDir, req.params.file);
@@ -181,14 +179,14 @@ app.get("/subtitles/file/:file", async (req, res) => {
 });
 
 // =======================
-// Teste rápido (homepage simples)
+// 🔹 Página inicial simples
 // =======================
 app.get("/", (req, res) => {
   res.send("✅ Addon Auto-Translate RDG está rodando. Acesse /manifest.json");
 });
 
 // =======================
-// Inicializa servidor
+// 🔹 Inicializa servidor
 // =======================
 app.listen(PORT, () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
