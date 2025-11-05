@@ -12,7 +12,7 @@
     "axios": "^1.6.7",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "google-translate-api-x": "^10.7.2",
+    "google-translate-api-x": "^10.9.1",
     "node-cache": "^5.1.2"
   },
   "devDependencies": {
