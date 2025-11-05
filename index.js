@@ -1,167 +1,180 @@
 import express from "express";
 import fetch from "node-fetch";
-import fs from "fs-extra";
+import fs from "fs";
 import path from "path";
-import cors from "cors";
-import morgan from "morgan";
-import { fileURLToPath } from "url";
-import translate from "google-translate-api-x";
+import pLimit from "p-limit";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 10000;
+const __dirname = path.resolve();
+const SUBS_DIR = path.join(__dirname, "subtitles");
 
-app.use(cors());
-app.use(morgan("dev"));
+if (!fs.existsSync(SUBS_DIR)) fs.mkdirSync(SUBS_DIR);
 
-const subtitlesDir = path.join(__dirname, "subtitles");
-await fs.ensureDir(subtitlesDir);
+// ----------------------------
+// 🔹 Função utilitária: pausa
+// ----------------------------
+const delay = ms => new Promise(r => setTimeout(r, ms));
 
-// =======================
-// Função para obter legenda original do OpenSubtitles
-// =======================
-async function getSubtitle(imdbId) {
-  const cleanId = imdbId.replace("tt", ""); // remove prefixo "tt" se existir
-  const url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
-  console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
-
-  const response = await fetch(url, {
-    headers: { "User-Agent": "TemporaryUserAgent" },
+// ----------------------------
+// 🔹 Rota do manifesto Stremio
+// ----------------------------
+app.get("/manifest.json", (req, res) => {
+  res.json({
+    id: "auto-translate-rdg",
+    version: "1.0.0",
+    name: "Auto Translate RDG",
+    description: "Addon que traduz automaticamente legendas para PT-BR usando API de tradução.",
+    types: ["movie", "series"],
+    catalogs: [],
+    resources: [
+      {
+        name: "subtitles",
+        types: ["movie", "series"],
+        idPrefixes: ["tt"]
+      }
+    ],
+    idPrefixes: ["tt"],
+    background: "https://auto-translate-rdg.onrender.com",
+    logo: "https://stremio-logo.s3.eu-west-1.amazonaws.com/stremio.png"
   });
+});
 
-  if (!response.ok)
-    throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+// ----------------------------
+// 🔹 Busca legenda original
+// ----------------------------
+async function getOriginalSubtitle(imdbId) {
+  const apiUrl = `https://rest.opensubtitles.org/search/imdbid-${imdbId}/sublanguageid-eng`;
+  console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${apiUrl}`);
 
+  const response = await fetch(apiUrl, {
+    headers: { "User-Agent": "TemporaryUserAgent" }
+  });
   const data = await response.json();
-  if (!Array.isArray(data) || data.length === 0)
-    throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
+  if (!data || !data.length) throw new Error("Nenhuma legenda encontrada");
 
-  const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
-  if (!subUrl) throw new Error("Link da legenda inválido.");
+  const subtitleUrl = data[0].url;
+  console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subtitleUrl}`);
 
-  console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
-
-  const subRes = await fetch(subUrl);
-  const buffer = await subRes.arrayBuffer();
-  return Buffer.from(buffer).toString("utf-8");
+  const subtitleResponse = await fetch(subtitleUrl);
+  const srt = await subtitleResponse.text();
+  console.log(`[${new Date().toISOString()}] Legenda original obtida (${srt.length} bytes)`);
+  return srt;
 }
 
-// =======================
-// Traduz legenda em blocos (paralelo)
-// =======================
-async function translateSubtitle(content, targetLang = "pt") {
-  const lines = content.split("\n");
+// ----------------------------
+// 🔹 Tradução (API livre usada)
+// ----------------------------
+async function translateText(text) {
+  const body = {
+    q: text,
+    source: "en",
+    target: "pt",
+    format: "text"
+  };
+  const res = await fetch("https://libretranslate.de/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const json = await res.json();
+  return json.translatedText || "";
+}
+
+// ----------------------------
+// 🔹 Tradução em blocos paralelos
+// ----------------------------
+async function translateSubtitleBlocks(originalSrt) {
+  const lines = originalSrt.split("\n");
   const blocks = [];
-  let temp = "";
+  let current = "";
 
   for (const line of lines) {
-    if (temp.length + line.length < 4500) {
-      temp += line + "\n";
-    } else {
-      blocks.push(temp);
-      temp = line + "\n";
+    if ((current + line + "\n").length > 4500) {
+      blocks.push(current);
+      current = "";
     }
+    current += line + "\n";
   }
-  if (temp) blocks.push(temp);
+  if (current.trim()) blocks.push(current);
 
   console.log(`Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`);
 
-  // Tradução paralela limitada (4 blocos simultâneos)
-  const concurrency = 4;
-  const translatedBlocks = [];
-  let index = 0;
-
-  async function worker() {
-    while (index < blocks.length) {
-      const i = index++;
-      try {
-        const res = await translate(blocks[i], { to: targetLang });
-        translatedBlocks[i] = res.text;
+  // Limitar requisições simultâneas (para não sobrecarregar API)
+  const limit = pLimit(4);
+  const translatedBlocks = await Promise.all(
+    blocks.map((block, i) =>
+      limit(async () => {
+        const translated = await translateText(block);
         console.log(`✔️ Bloco ${i + 1}/${blocks.length} traduzido`);
-      } catch (err) {
-        console.error(`❌ Erro no bloco ${i + 1}:`, err.message);
-        translatedBlocks[i] = blocks[i];
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: concurrency }, worker));
+        await delay(200); // leve pausa entre requisições
+        return translated;
+      })
+    )
+  );
 
   return translatedBlocks.join("\n");
 }
 
-// =======================
-// Manifest Stremio
-// =======================
-app.get("/manifest.json", (req, res) => {
-  res.json({
-    id: "org.rdg.auto-translate",
-    version: "1.0.0",
-    name: "Auto Translate RDG",
-    description: "Addon que traduz legendas automaticamente para PT-BR",
-    resources: ["subtitles"],
-    types: ["movie", "series"],
-    idPrefixes: [""], // <-- aceita qualquer ID (com ou sem "tt")
-    catalogs: [],
-  });
-});
-
-// =======================
-// Rota de legendas
-// =======================
+// ----------------------------
+// 🔹 Rota principal Stremio
+// ----------------------------
 app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
-  let { imdbId } = req.params;
-  const targetLang = req.query.lang || "pt";
-  const cleanId = imdbId.replace("tt", "");
-  const cachePath = path.join(subtitlesDir, `${cleanId}_${targetLang}.srt`);
+  const { imdbId } = req.params;
+  const langCode = "pt";
+  const cachePath = path.join(SUBS_DIR, `${imdbId}_${langCode}.srt`);
 
   console.log(`[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`);
 
+  // 🔸 Verifica cache
+  if (fs.existsSync(cachePath)) {
+    console.log(`[${new Date().toISOString()}] Legenda encontrada em cache: ${cachePath}`);
+    return res.json({
+      subtitles: [
+        {
+          id: `${imdbId}:${langCode}`,
+          url: `https://auto-translate-rdg.onrender.com/subtitles/file/${imdbId}_${langCode}.srt`,
+          lang: langCode,
+          name: "Auto-Translated (PT)"
+        }
+      ]
+    });
+  }
+
   try {
-    if (await fs.pathExists(cachePath)) {
-      console.log(`✅ Cache encontrado para ${imdbId}`);
-    } else {
-      const original = await getSubtitle(cleanId);
-      console.log(`[${new Date().toISOString()}] Legenda original obtida (${original.length} bytes)`);
+    const originalSrt = await getOriginalSubtitle(imdbId);
+    const translatedSrt = await translateSubtitleBlocks(originalSrt);
+    fs.writeFileSync(cachePath, translatedSrt, "utf8");
+    console.log(`[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(cachePath)}`);
 
-      const translated = await translateSubtitle(original, targetLang);
-      await fs.writeFile(cachePath, translated, "utf-8");
-      console.log(`[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(cachePath)}`);
-    }
-
-    const body = [
-      {
-        id: `${imdbId}:${targetLang}`,
-        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cleanId}_${targetLang}.srt`,
-        lang: targetLang,
-        name: `Auto-Translated (${targetLang.toUpperCase()})`,
-      },
-    ];
-
-    res.json({ subtitles: body });
+    res.json({
+      subtitles: [
+        {
+          id: `${imdbId}:${langCode}`,
+          url: `https://auto-translate-rdg.onrender.com/subtitles/file/${imdbId}_${langCode}.srt`,
+          lang: langCode,
+          name: "Auto-Translated (PT)"
+        }
+      ]
+    });
   } catch (err) {
-    console.error("❌ Erro geral:", err.message);
+    console.error("Erro:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// =======================
-// Servir arquivo traduzido
-// =======================
-app.get("/subtitles/file/:file", async (req, res) => {
-  const file = path.join(subtitlesDir, req.params.file);
-  if (await fs.pathExists(file)) {
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    fs.createReadStream(file).pipe(res);
-  } else {
-    res.status(404).send("Arquivo não encontrado");
-  }
+// ----------------------------
+// 🔹 Servir legendas salvas
+// ----------------------------
+app.get("/subtitles/file/:file", (req, res) => {
+  const filePath = path.join(SUBS_DIR, req.params.file);
+  if (!fs.existsSync(filePath)) return res.status(404).send("Arquivo não encontrado");
+  res.sendFile(filePath);
 });
 
-// =======================
-// Iniciar servidor
-// =======================
+// ----------------------------
+// 🔹 Inicialização
+// ----------------------------
 app.listen(PORT, () => {
   console.log(`Servidor iniciado na porta ${PORT}`);
 });
