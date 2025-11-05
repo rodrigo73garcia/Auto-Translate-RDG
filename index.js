@@ -1,146 +1,156 @@
 import express from "express";
-import cors from "cors";
-import morgan from "morgan";
-import compression from "compression";
+import fetch from "node-fetch";
 import fs from "fs-extra";
 import path from "path";
-import fetch from "node-fetch";
-import { translate } from "google-translate-api-x";
+import cors from "cors";
+import morgan from "morgan";
+import { fileURLToPath } from "url";
+import translate from "google-translate-api-x";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 app.use(morgan("dev"));
-app.use(compression());
-app.use(express.json());
 
-// =====================
-// 🔹 Configurações
-// =====================
-const OPEN_SUBTITLES_URL = "https://rest.opensubtitles.org/search";
-const USER_AGENT = "TemporaryUserAgent";
-const CACHE_DIR = "./cache";
-await fs.ensureDir(CACHE_DIR);
+const subtitlesDir = path.join(__dirname, "subtitles");
+await fs.ensureDir(subtitlesDir);
 
-// =====================
-// 🔹 Manifesto do Addon
-// =====================
-const manifest = {
-  id: "auto-translate-rdg",
-  version: "1.0.0",
-  name: "Auto Translate RDG",
-  description: "Addon que traduz legendas automaticamente para o português",
-  types: ["movie", "series"],
-  catalogs: [],
-  resources: ["subtitles"],
-};
+// =======================
+// Função para obter legenda original do OpenSubtitles
+// =======================
+async function getSubtitle(imdbId) {
+  const url = `https://rest.opensubtitles.org/search/imdbid-${imdbId}/sublanguageid-eng`;
+  console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
 
-// =====================
-// 🔹 Rotas básicas
-// =====================
-app.get("/", (req, res) => res.send("API Auto Translate RDG online ✅"));
-app.get("/test", (req, res) => res.json({ status: "✅ online", time: new Date() }));
+  const response = await fetch(url, {
+    headers: { "User-Agent": "TemporaryUserAgent" },
+  });
 
-// =====================
-// 🔹 Manifesto (Stremio)
-// =====================
+  if (!response.ok) throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+
+  const data = await response.json();
+  if (!Array.isArray(data) || data.length === 0) throw new Error("Nenhuma legenda encontrada.");
+
+  // pega o primeiro resultado
+  const subUrl = data[0].SubDownloadLink.replace(".gz", "");
+  console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
+
+  const subRes = await fetch(subUrl);
+  const buffer = await subRes.arrayBuffer();
+  return Buffer.from(buffer).toString("utf-8");
+}
+
+// =======================
+// Traduz legenda em blocos de 200 caracteres
+// =======================
+async function translateSubtitle(content, targetLang = "pt") {
+  const lines = content.split("\n");
+  const blocks = [];
+  let temp = "";
+
+  for (const line of lines) {
+    if (temp.length + line.length < 200) {
+      temp += line + "\n";
+    } else {
+      blocks.push(temp);
+      temp = line + "\n";
+    }
+  }
+  if (temp) blocks.push(temp);
+
+  console.log(`Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`);
+
+  let translated = "";
+  let count = 0;
+
+  for (const block of blocks) {
+    count++;
+    try {
+      const res = await translate(block, { to: targetLang });
+      translated += res.text + "\n";
+      console.log(`✔️ Bloco ${count}/${blocks.length} traduzido`);
+    } catch (err) {
+      console.error(`❌ Erro no bloco ${count}:`, err.message);
+      translated += block; // mantém o original se falhar
+    }
+  }
+
+  return translated;
+}
+
+// =======================
+// Rota principal do Stremio (manifest)
+// =======================
 app.get("/manifest.json", (req, res) => {
-  res.json(manifest);
+  res.json({
+    id: "auto-translate-rdg",
+    version: "1.0.0",
+    name: "Auto Translate RDG",
+    description: "Addon que traduz legendas automaticamente para PT-BR",
+    resources: ["subtitles"],
+    types: ["movie", "series"],
+    idPrefixes: ["tt"],
+    catalogs: [],
+  });
 });
 
-// =====================
-// 🔹 Rota principal: /subtitles/:type/:imdbid
-// =====================
-app.get("/subtitles/:type/:imdbid", async (req, res) => {
-  const { type, imdbid } = req.params;
-  const lang = req.query.lang || "pt";
-  const cleanId = imdbid.replace(".json", "");
+// =======================
+// Rota de legendas
+// =======================
+app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
+  const { imdbId } = req.params;
+  const targetLang = req.query.lang || "pt";
+  const cachePath = path.join(subtitlesDir, `${imdbId}_${targetLang}.srt`);
 
-  console.log(`[${new Date().toISOString()}] Nova requisição -> type: ${type}, imdb: ${cleanId}`);
+  console.log(`[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`);
 
   try {
-    const cachePath = path.join(CACHE_DIR, `${type}_${cleanId}_${lang}.srt`);
-
-    // Se já existir legenda traduzida no cache, retorna
     if (await fs.pathExists(cachePath)) {
-      console.log(`Legenda traduzida já em cache: ${cachePath}`);
-      const srt = await fs.readFile(cachePath, "utf8");
-      return res.json([
-        {
-          id: `${lang}-${cleanId}`,
-          url: `${req.protocol}://${req.get("host")}/${cachePath.replace("./", "")}`,
-          lang: "Português (BR)",
-          langcode: lang,
-        },
-      ]);
+      console.log(`✅ Cache encontrado para ${imdbId}`);
+    } else {
+      const original = await getSubtitle(imdbId);
+      console.log(`[${new Date().toISOString()}] Legenda original obtida (${original.length} bytes)`);
+
+      const translated = await translateSubtitle(original, targetLang);
+      await fs.writeFile(cachePath, translated, "utf-8");
+      console.log(`[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(cachePath)}`);
     }
 
-    // Buscar legenda original no OpenSubtitles
-    const response = await fetch(`${OPEN_SUBTITLES_URL}/imdbid-${cleanId}/sublanguageid-eng`, {
-      headers: { "User-Agent": USER_AGENT },
-    });
-
-    const subtitles = await response.json();
-    if (!Array.isArray(subtitles) || subtitles.length === 0)
-      throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
-
-    const sub = subtitles[0];
-    const downloadUrl = sub.url || sub.SubDownloadLink;
-    const original = await fetch(downloadUrl);
-    const srtText = await original.text();
-
-    console.log(`[${new Date().toISOString()}] Legenda original obtida (${srtText.length} bytes)`);
-
-    // Traduzir legenda em blocos
-    const lines = srtText.split("\n");
-    const blocks = [];
-    const blockSize = 200;
-    for (let i = 0; i < lines.length; i += blockSize) {
-      blocks.push(lines.slice(i, i + blockSize).join("\n"));
-    }
-
-    console.log(`Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`);
-
-    let translated = "";
-
-    for (let i = 0; i < blocks.length; i++) {
-      const blockFile = path.join(CACHE_DIR, `${type}_${cleanId}_${lang}_part${i}.srt`);
-      if (await fs.pathExists(blockFile)) {
-        translated += await fs.readFile(blockFile, "utf8") + "\n";
-        console.log(`✔️ Bloco ${i + 1} já traduzido`);
-        continue;
-      }
-
-      const result = await translate(blocks[i], { to: lang, forceTo: true });
-      await fs.writeFile(blockFile, result.text);
-      translated += result.text + "\n";
-      console.log(`✔️ Bloco ${i + 1} traduzido`);
-    }
-
-    await fs.writeFile(cachePath, translated);
-    console.log(`[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(cachePath)}`);
-
-    // Retorna formato compatível com Stremio
-    res.json([
+    const body = [
       {
-        id: `${lang}-${cleanId}`,
-        lang: "Português (BR)",
-        langcode: lang,
-        url: `${req.protocol}://${req.get("host")}/${cachePath.replace("./", "")}`,
+        id: `${imdbId}:${targetLang}`,
+        url: `${req.protocol}://${req.get("host")}/subtitles/file/${imdbId}_${targetLang}.srt`,
+        lang: targetLang,
+        name: `Auto-Translated (${targetLang.toUpperCase()})`,
       },
-    ]);
+    ];
+
+    res.json({ subtitles: body });
   } catch (err) {
-    console.error("Erro na rota:", err);
-    res.status(500).json({ error: err.message || "Erro ao processar legenda." });
+    console.error("Erro geral:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// =====================
-// 🔹 Servir arquivos de legenda traduzidos
-// =====================
-app.use("/cache", express.static("cache"));
+// =======================
+// Rota para servir o arquivo SRT
+// =======================
+app.get("/subtitles/file/:file", async (req, res) => {
+  const file = path.join(subtitlesDir, req.params.file);
+  if (await fs.pathExists(file)) {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    fs.createReadStream(file).pipe(res);
+  } else {
+    res.status(404).send("Arquivo não encontrado");
+  }
+});
 
+// =======================
+// Iniciar servidor
+// =======================
 app.listen(PORT, () => {
   console.log(`Servidor iniciado na porta ${PORT}`);
 });
