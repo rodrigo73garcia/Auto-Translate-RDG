@@ -4,29 +4,19 @@ import path from "path";
 import { fileURLToPath } from "url";
 import os from "os";
 
-
-// Define diretórios base
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Cria o app express
 const app = express();
-
-// Porta automática (Render usa process.env.PORT)
 const PORT = process.env.PORT || 3000;
 
-// Caminho do cache em disco
+// Diretório de cache
 const cacheDir = path.join(os.tmpdir(), "subtitle_cache");
-
-// Garante que o cache exista
 await fs.mkdir(cacheDir, { recursive: true });
 
-// Função auxiliar de log
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
-// Função para ler do cache
 async function readCache(key) {
   try {
     const filePath = path.join(cacheDir, `${key}.srt`);
@@ -37,7 +27,6 @@ async function readCache(key) {
   }
 }
 
-// Função para salvar no cache
 async function saveCache(key, data) {
   try {
     const filePath = path.join(cacheDir, `${key}.srt`);
@@ -47,54 +36,90 @@ async function saveCache(key, data) {
   }
 }
 
+// Função para buscar legenda no OpenSubtitles
+async function fetchSubtitleFromOpenSubtitles(imdbID) {
+  const url = `https://rest.opensubtitles.org/search/imdbid-${imdbID}/sublanguageid-eng`;
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "TemporaryUserAgent", // obrigatório pela API
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Erro ao buscar no OpenSubtitles: ${response.status}`);
+  }
+
+  const results = await response.json();
+  if (!Array.isArray(results) || results.length === 0) {
+    throw new Error("Nenhuma legenda encontrada.");
+  }
+
+  // Pega a primeira legenda com link direto
+  const best = results[0];
+  const downloadUrl = best.url || best.SubDownloadLink;
+
+  if (!downloadUrl) {
+    throw new Error("Legenda sem link de download válido.");
+  }
+
+  // Baixa o conteúdo da legenda
+  const srtResponse = await fetch(downloadUrl);
+  if (!srtResponse.ok) {
+    throw new Error("Falha ao baixar o arquivo de legenda.");
+  }
+
+  const buffer = await srtResponse.arrayBuffer();
+  return Buffer.from(buffer).toString("utf-8");
+}
+
+// Função "fake" de tradução (substitua pela sua API real)
+function translateFake(srt) {
+  return srt.replace(/([A-Za-z]+)/g, "$1_PT");
+}
+
 // --- ROTA PRINCIPAL ---
 app.get("/subtitles/:type/:imdbParam(*)", async (req, res) => {
   const { type, imdbParam } = req.params;
-  const cacheKey = `${type}_${imdbParam.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+  const imdbID = imdbParam.replace(/\D/g, ""); // limpa apenas os números
+  const cacheKey = `${type}_${imdbID}`;
 
-  log(`Nova requisição recebida -> type: ${type}, imdb: ${imdbParam}`);
+  log(`Nova requisição -> type: ${type}, imdb: ${imdbID}`);
 
   try {
-    // 1️⃣ Verifica cache
+    // Verifica cache
     const cached = await readCache(cacheKey);
     if (cached) {
-      log(`Cache encontrado para ${cacheKey}`);
+      log(`Cache encontrado: ${cacheKey}`);
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       return res.send(cached);
     }
 
-    // 2️⃣ Busca legenda original
-    const originalUrl = `https://yoursubtitleapi.example.com/${type}/${imdbParam}`;
-    const response = await fetch(originalUrl);
-    if (!response.ok) throw new Error("Falha ao obter legenda original");
+    // Busca legenda no OpenSubtitles
+    const originalSrt = await fetchSubtitleFromOpenSubtitles(imdbID);
+    log(`Legenda original obtida (${originalSrt.length} bytes)`);
 
-    const originalSubtitle = await response.text();
+    // Tradução (simulada)
+    const translated = translateFake(originalSrt);
 
-    // 3️⃣ Tradução (simulação aqui, troque pela sua API real)
-    const translatedSubtitle = originalSubtitle.replace(
-      /([A-Za-z]+)/g,
-      "$1_PT"
-    );
+    // Salva cache
+    await saveCache(cacheKey, translated);
+    log(`Legenda traduzida salva: ${cacheKey}`);
 
-    // 4️⃣ Salva no cache
-    await saveCache(cacheKey, translatedSubtitle);
-    log(`Legenda traduzida e salva em cache: ${cacheKey}`);
-
-    // 5️⃣ Retorna legenda
+    // Envia resposta
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.send(translatedSubtitle);
+    res.send(translated);
   } catch (err) {
     console.error("Erro na rota:", err);
     res.status(500).send("Erro ao processar legenda.");
   }
 });
 
-// --- ROTA DE STATUS ---
+// Rota de status
 app.get("/", (req, res) => {
-  res.send("🟢 Auto-Translate API ativa e rodando.");
+  res.send("🟢 Auto-Translate API com OpenSubtitles ativa.");
 });
 
-// --- INICIA SERVIDOR ---
 app.listen(PORT, () => {
   log(`Servidor iniciado na porta ${PORT}`);
 });
