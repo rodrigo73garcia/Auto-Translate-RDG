@@ -21,9 +21,15 @@ await fs.ensureDir(subtitlesDir);
 // =======================
 // Função para obter legenda original do OpenSubtitles
 // =======================
-async function getSubtitle(imdbId) {
+async function getSubtitle(imdbId, type = "movie", season = null, episode = null) {
   const cleanId = imdbId.replace("tt", "").split(":")[0];
-  const url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
+
+  // 🔧 Construção inteligente da URL — inclui temporada/episódio se for série
+  let url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
+  if (type === "series" && season && episode) {
+    url = `https://rest.opensubtitles.org/search/episode-${episode}/season-${season}/imdbid-${cleanId}/sublanguageid-eng`;
+  }
+
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
 
   try {
@@ -119,17 +125,25 @@ app.get("/manifest.json", (req, res) => {
 // Rota principal de legendas
 // =======================
 app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
-  const { imdbId } = req.params;
+  const { type, imdbId } = req.params;
   const targetLang = req.query.lang || "pt";
-  const cleanId = imdbId.replace("tt", "");
-  const cachePath = path.join(subtitlesDir, `${cleanId}_${targetLang}.srt`);
+
+  // 📺 Detecta temporada e episódio
+  const parts = imdbId.split(":");
+  const cleanId = parts[0].replace("tt", "");
+  const season = parts[1] || null;
+  const episode = parts[2] || null;
+
+  // 🔑 Cache único por episódio/temporada
+  const cacheKey = season && episode ? `${cleanId}:${season}:${episode}_${targetLang}` : `${cleanId}_${targetLang}`;
+  const cachePath = path.join(subtitlesDir, `${cacheKey}.srt`);
 
   console.log(`[${new Date().toISOString()}] 🔹 Requisição recebida -> imdb: ${imdbId}`);
 
   try {
     if (!(await fs.pathExists(cachePath))) {
       console.log(`🕐 Nenhum cache encontrado. Buscando e traduzindo...`);
-      const original = await getSubtitle(imdbId);
+      const original = await getSubtitle(imdbId, type, season, episode);
       const translated = await translateSubtitle(original, targetLang);
       await fs.writeFile(cachePath, translated, "utf-8");
       console.log(`💾 Legenda traduzida salva em cache: ${path.basename(cachePath)}`);
@@ -140,7 +154,7 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
     const body = [
       {
         id: `${imdbId}:${targetLang}`,
-        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cleanId}_${targetLang}.srt`,
+        url: `${req.protocol}://${req.get("host")}/subtitles/file/${path.basename(cachePath)}`,
         lang: targetLang,
         name: `Auto-Translated (${targetLang.toUpperCase()})`,
       },
