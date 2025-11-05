@@ -22,7 +22,7 @@ await fs.ensureDir(subtitlesDir);
 // Função para obter legenda original do OpenSubtitles
 // =======================
 async function getSubtitle(imdbId) {
-  const cleanId = imdbId.replace("tt", "");
+  const cleanId = imdbId.replace("tt", "").split(":")[0];
   const url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
 
