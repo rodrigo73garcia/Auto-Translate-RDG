@@ -1,120 +1,73 @@
-import express from "express";
-import cors from "cors";
-import bodyParser from "body-parser";
-import { PORT } from "./config.js";
-import { fetchAndTranslateSubtitle } from "./subtitles.js";
-import { generateManifest } from "./manifest.js";
-
-const app = express();
-
-app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.text());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static("public"));
-
-// ============ LOG TUDO ============
-app.use((req, res, next) => {
-  console.log(`\n>>> ${req.method} ${req.path} ${JSON.stringify(req.query)}`);
-  next();
-});
-
-app.get("/health", (req, res) => {
-  console.log("✅ HEALTH CHECK");
-  res.json({ status: "ok" });
-});
-
-app.get("/manifest.json", (req, res) => {
-  const lang = req.query.lang || "pt-br";
-  console.log(`📋 MANIFEST REQUESTED: ${lang}`);
-  const manifest = generateManifest(lang);
-  console.log(`📋 MANIFEST SENDING:`, JSON.stringify(manifest));
-  res.json(manifest);
-});
-
-app.get("/catalog/movie/default.json", (req, res) => {
-  console.log("📚 CATALOG MOVIE");
-  res.json({ metas: [] });
-});
-
-app.get("/catalog/series/default.json", (req, res) => {
-  console.log("📚 CATALOG SERIES");
-  res.json({ metas: [] });
-});
-
-function cleanImdbId(id) {
-  return id.replace(/^tt/, "");
-}
-
-// ============ SUBTITLES - CRITICAL ============
-app.get("/subtitles/movie/:imdbId.json", async (req, res) => {
-  console.log(`\n🎬🎬🎬 SUBTITLES/MOVIE REQUEST RECEIVED 🎬🎬🎬`);
-  console.log(`   IMDB ID: ${req.params.imdbId}`);
-  console.log(`   QUERY: ${JSON.stringify(req.query)}`);
-  
+// ROTA CURTA + LONGA para legendas (aceita /subtitles/movie/0816692.json
+// e /subtitles/movie/tt0816692/filename=...&videoSize=...&videoHash=....json)
+app.get("/subtitles/:type/:imdbParam(*)", async (req, res) => {
   try {
-    const imdbId = cleanImdbId(req.params.imdbId);
-    const lang = req.query.lang || "pt-br";
-    
-    console.log(`   CLEAN ID: ${imdbId}`);
-    console.log(`   LANG: ${lang}`);
-    
-    const result = await fetchAndTranslateSubtitle(imdbId, lang);
-    
-    console.log(`   RESULT:`, result ? "SUCCESS" : "NULL");
-    res.json(result || { subtitles: [] });
+    console.log(">>> GET", req.originalUrl, req.query);
+
+    const { type } = req.params;
+    let raw = req.params.imdbParam || ""; // pega todo o resto do caminho
+
+    // Tentativa 1: procurar o primeiro ttXXXXXXXX ou somente dígitos
+    const m = raw.match(/(tt\d+)|(\d{5,})/);
+    if (!m) {
+      console.warn("❌ IMDB ID não encontrado no path:", raw);
+      return res.status(404).json({ error: "imdb id not found" });
+    }
+
+    // extrair e normalizar: remover 'tt' se existir e manter leading zeros
+    let imdbId = (m[0].startsWith("tt") ? m[0].slice(2) : m[0]).replace(/^0+/, (s) => s); 
+    // OBS: mantive a string tal como está (algumas versões usam zeros à esquerda). Se preferir manter zeros:
+    imdbId = m[0].startsWith("tt") ? m[0].slice(2) : m[0];
+
+    // Normalizar linguagem: Accepta os valores que o Stremio envia (ex: "Português (Brasil)" ou "pt-br")
+    let lang = req.query.lang || req.query.language || "pt-br";
+    // Mapeamento simples (expanda conforme seu config)
+    const langMap = {
+      "pt-br": "pt-br",
+      "pt-BR": "pt-br",
+      "Português (Brasil)": "pt-br",
+      "Português": "pt-br",
+      "pt": "pt",
+      "en": "en",
+      "es": "es"
+    };
+    const targetLang = langMap[lang] || langMap[lang.toLowerCase()] || "pt-br";
+
+    console.log(`🎬 SUBTITLES REQUEST -> type: ${type} | imdb: ${imdbId} | lang: ${targetLang}`);
+
+    // Chama sua função existente (fetchAndTranslateSubtitle)
+    const subtitleResult = await fetchAndTranslateSubtitle(imdbId.replace(/^tt/, ""), targetLang);
+
+    // O formato da resposta precisa seguir o que o Stremio espera.
+    // Se sua fetchAndTranslateSubtitle já retorna o JSON pronto (com url etc.), retorne-o.
+    // Caso contrário, retorne no formato abaixo (exemplo):
+    if (!subtitleResult) {
+      return res.status(404).json({ subtitles: [] });
+    }
+
+    // Exemplo: se subtitleResult for um array de objetos prontos para stremio:
+    if (Array.isArray(subtitleResult)) {
+      return res.json({ subtitles: subtitleResult });
+    }
+
+    // Se subtitleResult for o SRT traduzido em texto, crie um objeto que a UI do Stremio possa usar:
+    // Nesse caso você precisa servir o SRT traduzido por uma URL pública (p.ex. /public/generated/...), 
+    // mas como muitas implementações fornecem a legenda diretamente como url do SRT reverso,
+    // vou retornar um objeto inline de exemplo com url apontando para a rota que entrega o .srt:
+    // (Ajuste conforme sua arquitetura: se você já gera e armazena o srt, coloque a URL real.)
+    const subtitleObject = {
+      id: `autotranslate-${imdbId}-${targetLang}`,
+      lang: targetLang,
+      name: `Auto Translate RDG (${targetLang})`,
+      // Se você possuir uma rota que entrega o SRT cru, use aqui a URL real:
+      // ex: `${req.protocol}://${req.get('host')}/generated/${imdbId}-${targetLang}.srt`
+      url: `${req.protocol}://${req.get("host")}${req.path}.srt?lang=${encodeURIComponent(targetLang)}`,
+      hearing_impaired: false
+    };
+
+    return res.json({ subtitles: [subtitleObject] });
   } catch (err) {
-    console.error(`❌ ERROR:`, err.message);
-    console.error(err.stack);
-    res.status(500).json({ subtitles: [], error: err.message });
+    console.error("❌ Erro na rota subtitles:", err);
+    return res.status(500).json({ error: err.message });
   }
 });
-
-app.get("/subtitles/series/:imdbId.json", async (req, res) => {
-  console.log(`\n📺📺📺 SUBTITLES/SERIES REQUEST RECEIVED 📺📺📺`);
-  console.log(`   IMDB ID: ${req.params.imdbId}`);
-  console.log(`   QUERY: ${JSON.stringify(req.query)}`);
-  
-  try {
-    const imdbId = cleanImdbId(req.params.imdbId);
-    const lang = req.query.lang || "pt-br";
-    
-    console.log(`   CLEAN ID: ${imdbId}`);
-    console.log(`   LANG: ${lang}`);
-    
-    const result = await fetchAndTranslateSubtitle(imdbId, lang);
-    
-    console.log(`   RESULT:`, result ? "SUCCESS" : "NULL");
-    res.json(result || { subtitles: [] });
-  } catch (err) {
-    console.error(`❌ ERROR:`, err.message);
-    console.error(err.stack);
-    res.status(500).json({ subtitles: [], error: err.message });
-  }
-});
-
-app.get("/", (req, res) => {
-  console.log("📄 HOME");
-  res.json({ message: "Auto Translate RDG Addon" });
-});
-
-// ============ 404 ============
-app.use((req, res) => {
-  console.log(`❌ 404: ${req.method} ${req.path}`);
-  res.status(404).json({ error: "Not found" });
-});
-
-// ============ ERROR ============
-app.use((err, req, res, next) => {
-  console.error(`❌ SERVER ERROR:`, err.message);
-  console.error(err.stack);
-  res.status(500).json({ error: err.message });
-});
-
-// ============ START ============
-const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`\n✅✅✅ SERVER STARTED ON PORT ${PORT} ✅✅✅\n`);
-});
-
-server.keepAliveTimeout = 120000;
-server.headersTimeout = 120000;
