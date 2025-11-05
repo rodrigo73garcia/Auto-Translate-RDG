@@ -22,7 +22,7 @@ await fs.ensureDir(subtitlesDir);
 // Função para obter legenda original do OpenSubtitles
 // =======================
 async function getSubtitle(imdbId) {
-  const cleanId = imdbId.replace("tt", ""); // 🔧 remove prefixo "tt" se existir
+  const cleanId = imdbId.replace("tt", ""); // remove prefixo "tt" se existir
   const url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
 
@@ -37,7 +37,6 @@ async function getSubtitle(imdbId) {
   if (!Array.isArray(data) || data.length === 0)
     throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
 
-  // pega o primeiro resultado
   const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
   if (!subUrl) throw new Error("Link da legenda inválido.");
 
@@ -49,39 +48,7 @@ async function getSubtitle(imdbId) {
 }
 
 // =======================
-// Função auxiliar: traduz blocos em lotes paralelos
-// =======================
-async function traduzirEmLotes(blocos, traduzirFunc, limite = 4) {
-  const resultados = [];
-  let index = 0;
-
-  while (index < blocos.length) {
-    const lote = blocos.slice(index, index + limite);
-
-    // Executa traduções em paralelo dentro do limite
-    const traducoes = await Promise.all(
-      lote.map(async (texto, i) => {
-        const blocoIndex = index + i + 1;
-        try {
-          const res = await traduzirFunc(texto);
-          console.log(`✔️ Bloco ${blocoIndex}/${blocos.length} traduzido`);
-          return res;
-        } catch (err) {
-          console.error(`❌ Erro no bloco ${blocoIndex}: ${err.message}`);
-          return texto; // mantém o original se falhar
-        }
-      })
-    );
-
-    resultados.push(...traducoes);
-    index += limite;
-  }
-
-  return resultados;
-}
-
-// =======================
-// Traduz legenda em blocos (máx. 4500 caracteres)
+// Traduz legenda em blocos (paralelo)
 // =======================
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
@@ -98,34 +65,44 @@ async function translateSubtitle(content, targetLang = "pt") {
   }
   if (temp) blocks.push(temp);
 
-  console.log(
-    `Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`
-  );
+  console.log(`Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`);
 
-  // função de tradução individual
-  const traduzirFunc = async (texto) => {
-    const res = await translate(texto, { to: targetLang });
-    return res.text;
-  };
+  // Tradução paralela limitada (4 blocos simultâneos)
+  const concurrency = 4;
+  const translatedBlocks = [];
+  let index = 0;
 
-  // traduz em paralelo (4 blocos por vez)
-  const traducoes = await traduzirEmLotes(blocks, traduzirFunc, 4);
+  async function worker() {
+    while (index < blocks.length) {
+      const i = index++;
+      try {
+        const res = await translate(blocks[i], { to: targetLang });
+        translatedBlocks[i] = res.text;
+        console.log(`✔️ Bloco ${i + 1}/${blocks.length} traduzido`);
+      } catch (err) {
+        console.error(`❌ Erro no bloco ${i + 1}:`, err.message);
+        translatedBlocks[i] = blocks[i];
+      }
+    }
+  }
 
-  return traducoes.join("\n");
+  await Promise.all(Array.from({ length: concurrency }, worker));
+
+  return translatedBlocks.join("\n");
 }
 
 // =======================
-// Rota principal do Stremio (manifest)
+// Manifest Stremio
 // =======================
 app.get("/manifest.json", (req, res) => {
   res.json({
-    id: "auto-translate-rdg",
+    id: "org.rdg.auto-translate",
     version: "1.0.0",
     name: "Auto Translate RDG",
     description: "Addon que traduz legendas automaticamente para PT-BR",
     resources: ["subtitles"],
     types: ["movie", "series"],
-    idPrefixes: ["tt"],
+    idPrefixes: [""], // <-- aceita qualquer ID (com ou sem "tt")
     catalogs: [],
   });
 });
@@ -134,39 +111,29 @@ app.get("/manifest.json", (req, res) => {
 // Rota de legendas
 // =======================
 app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
-  const { imdbId } = req.params;
+  let { imdbId } = req.params;
   const targetLang = req.query.lang || "pt";
   const cleanId = imdbId.replace("tt", "");
   const cachePath = path.join(subtitlesDir, `${cleanId}_${targetLang}.srt`);
 
-  console.log(
-    `[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`
-  );
+  console.log(`[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`);
 
   try {
     if (await fs.pathExists(cachePath)) {
       console.log(`✅ Cache encontrado para ${imdbId}`);
     } else {
-      const original = await getSubtitle(imdbId);
-      console.log(
-        `[${new Date().toISOString()}] Legenda original obtida (${original.length} bytes)`
-      );
+      const original = await getSubtitle(cleanId);
+      console.log(`[${new Date().toISOString()}] Legenda original obtida (${original.length} bytes)`);
 
       const translated = await translateSubtitle(original, targetLang);
       await fs.writeFile(cachePath, translated, "utf-8");
-      console.log(
-        `[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(
-          cachePath
-        )}`
-      );
+      console.log(`[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(cachePath)}`);
     }
 
     const body = [
       {
         id: `${imdbId}:${targetLang}`,
-        url: `${req.protocol}://${req.get(
-          "host"
-        )}/subtitles/file/${cleanId}_${targetLang}.srt`,
+        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cleanId}_${targetLang}.srt`,
         lang: targetLang,
         name: `Auto-Translated (${targetLang.toUpperCase()})`,
       },
@@ -180,7 +147,7 @@ app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
 });
 
 // =======================
-// Rota para servir o arquivo SRT
+// Servir arquivo traduzido
 // =======================
 app.get("/subtitles/file/:file", async (req, res) => {
   const file = path.join(subtitlesDir, req.params.file);
