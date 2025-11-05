@@ -1,0 +1,15 @@
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Cache de legendas traduzidas
+cache/
+subtitles/
+*.srt
+
+# Sistema e IDEs
+.DS_Store
+.env
+.vscode/
+.idea/
