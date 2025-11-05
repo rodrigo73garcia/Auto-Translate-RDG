@@ -1,0 +1,20 @@
+app.get('/manifest.json', (req, res) => {
+  res.json({
+    id: "auto-translate-rdg",
+    version: "1.0.0",
+    name: "Auto Translate RDG",
+    description: "Addon que traduz automaticamente legendas para PT-BR usando API de tradução.",
+    types: ["movie", "series"],
+    catalogs: [],
+    resources: [
+      {
+        name: "subtitles",
+        types: ["movie", "series"],
+        idPrefixes: ["tt"]
+      }
+    ],
+    idPrefixes: ["tt"],
+    background: "https://auto-translate-rdg.onrender.com",
+    logo: "https://stremio-logo.s3.eu-west-1.amazonaws.com/stremio.png"
+  });
+});
