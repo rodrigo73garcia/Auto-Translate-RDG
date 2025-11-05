@@ -1,73 +1,100 @@
-// ROTA CURTA + LONGA para legendas (aceita /subtitles/movie/0816692.json
-// e /subtitles/movie/tt0816692/filename=...&videoSize=...&videoHash=....json)
-app.get("/subtitles/:type/:imdbParam(*)", async (req, res) => {
+import express from "express";
+import fs from "fs/promises";
+import path from "path";
+import fetch from "node-fetch";
+import { fileURLToPath } from "url";
+import os from "os";
+
+// Define diretórios base
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Cria o app express
+const app = express();
+
+// Porta automática (Render usa process.env.PORT)
+const PORT = process.env.PORT || 3000;
+
+// Caminho do cache em disco
+const cacheDir = path.join(os.tmpdir(), "subtitle_cache");
+
+// Garante que o cache exista
+await fs.mkdir(cacheDir, { recursive: true });
+
+// Função auxiliar de log
+function log(msg) {
+  console.log(`[${new Date().toISOString()}] ${msg}`);
+}
+
+// Função para ler do cache
+async function readCache(key) {
   try {
-    console.log(">>> GET", req.originalUrl, req.query);
-
-    const { type } = req.params;
-    let raw = req.params.imdbParam || ""; // pega todo o resto do caminho
-
-    // Tentativa 1: procurar o primeiro ttXXXXXXXX ou somente dígitos
-    const m = raw.match(/(tt\d+)|(\d{5,})/);
-    if (!m) {
-      console.warn("❌ IMDB ID não encontrado no path:", raw);
-      return res.status(404).json({ error: "imdb id not found" });
-    }
-
-    // extrair e normalizar: remover 'tt' se existir e manter leading zeros
-    let imdbId = (m[0].startsWith("tt") ? m[0].slice(2) : m[0]).replace(/^0+/, (s) => s); 
-    // OBS: mantive a string tal como está (algumas versões usam zeros à esquerda). Se preferir manter zeros:
-    imdbId = m[0].startsWith("tt") ? m[0].slice(2) : m[0];
-
-    // Normalizar linguagem: Accepta os valores que o Stremio envia (ex: "Português (Brasil)" ou "pt-br")
-    let lang = req.query.lang || req.query.language || "pt-br";
-    // Mapeamento simples (expanda conforme seu config)
-    const langMap = {
-      "pt-br": "pt-br",
-      "pt-BR": "pt-br",
-      "Português (Brasil)": "pt-br",
-      "Português": "pt-br",
-      "pt": "pt",
-      "en": "en",
-      "es": "es"
-    };
-    const targetLang = langMap[lang] || langMap[lang.toLowerCase()] || "pt-br";
-
-    console.log(`🎬 SUBTITLES REQUEST -> type: ${type} | imdb: ${imdbId} | lang: ${targetLang}`);
-
-    // Chama sua função existente (fetchAndTranslateSubtitle)
-    const subtitleResult = await fetchAndTranslateSubtitle(imdbId.replace(/^tt/, ""), targetLang);
-
-    // O formato da resposta precisa seguir o que o Stremio espera.
-    // Se sua fetchAndTranslateSubtitle já retorna o JSON pronto (com url etc.), retorne-o.
-    // Caso contrário, retorne no formato abaixo (exemplo):
-    if (!subtitleResult) {
-      return res.status(404).json({ subtitles: [] });
-    }
-
-    // Exemplo: se subtitleResult for um array de objetos prontos para stremio:
-    if (Array.isArray(subtitleResult)) {
-      return res.json({ subtitles: subtitleResult });
-    }
-
-    // Se subtitleResult for o SRT traduzido em texto, crie um objeto que a UI do Stremio possa usar:
-    // Nesse caso você precisa servir o SRT traduzido por uma URL pública (p.ex. /public/generated/...), 
-    // mas como muitas implementações fornecem a legenda diretamente como url do SRT reverso,
-    // vou retornar um objeto inline de exemplo com url apontando para a rota que entrega o .srt:
-    // (Ajuste conforme sua arquitetura: se você já gera e armazena o srt, coloque a URL real.)
-    const subtitleObject = {
-      id: `autotranslate-${imdbId}-${targetLang}`,
-      lang: targetLang,
-      name: `Auto Translate RDG (${targetLang})`,
-      // Se você possuir uma rota que entrega o SRT cru, use aqui a URL real:
-      // ex: `${req.protocol}://${req.get('host')}/generated/${imdbId}-${targetLang}.srt`
-      url: `${req.protocol}://${req.get("host")}${req.path}.srt?lang=${encodeURIComponent(targetLang)}`,
-      hearing_impaired: false
-    };
-
-    return res.json({ subtitles: [subtitleObject] });
-  } catch (err) {
-    console.error("❌ Erro na rota subtitles:", err);
-    return res.status(500).json({ error: err.message });
+    const filePath = path.join(cacheDir, `${key}.srt`);
+    const data = await fs.readFile(filePath, "utf-8");
+    return data;
+  } catch {
+    return null;
   }
+}
+
+// Função para salvar no cache
+async function saveCache(key, data) {
+  try {
+    const filePath = path.join(cacheDir, `${key}.srt`);
+    await fs.writeFile(filePath, data, "utf-8");
+  } catch (err) {
+    console.error("Erro ao salvar cache:", err);
+  }
+}
+
+// --- ROTA PRINCIPAL ---
+app.get("/subtitles/:type/:imdbParam(*)", async (req, res) => {
+  const { type, imdbParam } = req.params;
+  const cacheKey = `${type}_${imdbParam.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+
+  log(`Nova requisição recebida -> type: ${type}, imdb: ${imdbParam}`);
+
+  try {
+    // 1️⃣ Verifica cache
+    const cached = await readCache(cacheKey);
+    if (cached) {
+      log(`Cache encontrado para ${cacheKey}`);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      return res.send(cached);
+    }
+
+    // 2️⃣ Busca legenda original
+    const originalUrl = `https://yoursubtitleapi.example.com/${type}/${imdbParam}`;
+    const response = await fetch(originalUrl);
+    if (!response.ok) throw new Error("Falha ao obter legenda original");
+
+    const originalSubtitle = await response.text();
+
+    // 3️⃣ Tradução (simulação aqui, troque pela sua API real)
+    const translatedSubtitle = originalSubtitle.replace(
+      /([A-Za-z]+)/g,
+      "$1_PT"
+    );
+
+    // 4️⃣ Salva no cache
+    await saveCache(cacheKey, translatedSubtitle);
+    log(`Legenda traduzida e salva em cache: ${cacheKey}`);
+
+    // 5️⃣ Retorna legenda
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.send(translatedSubtitle);
+  } catch (err) {
+    console.error("Erro na rota:", err);
+    res.status(500).send("Erro ao processar legenda.");
+  }
+});
+
+// --- ROTA DE STATUS ---
+app.get("/", (req, res) => {
+  res.send("🟢 Auto-Translate API ativa e rodando.");
+});
+
+// --- INICIA SERVIDOR ---
+app.listen(PORT, () => {
+  log(`Servidor iniciado na porta ${PORT}`);
 });
