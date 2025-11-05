@@ -1,9 +1,9 @@
 import express from "express";
 import fs from "fs/promises";
 import path from "path";
-import fetch from "node-fetch";
 import { fileURLToPath } from "url";
 import os from "os";
+
 
 // Define diretórios base
 const __filename = fileURLToPath(import.meta.url);
