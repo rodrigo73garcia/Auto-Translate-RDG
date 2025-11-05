@@ -22,20 +22,25 @@ await fs.ensureDir(subtitlesDir);
 // Função para obter legenda original do OpenSubtitles
 // =======================
 async function getSubtitle(imdbId) {
-  const url = `https://rest.opensubtitles.org/search/imdbid-${imdbId}/sublanguageid-eng`;
+  const cleanId = imdbId.replace("tt", ""); // 🔧 remove prefixo "tt" se existir
+  const url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
 
   const response = await fetch(url, {
     headers: { "User-Agent": "TemporaryUserAgent" },
   });
 
-  if (!response.ok) throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+  if (!response.ok)
+    throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
 
   const data = await response.json();
-  if (!Array.isArray(data) || data.length === 0) throw new Error("Nenhuma legenda encontrada.");
+  if (!Array.isArray(data) || data.length === 0)
+    throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
 
   // pega o primeiro resultado
-  const subUrl = data[0].SubDownloadLink.replace(".gz", "");
+  const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
+  if (!subUrl) throw new Error("Link da legenda inválido.");
+
   console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
 
   const subRes = await fetch(subUrl);
@@ -103,7 +108,8 @@ app.get("/manifest.json", (req, res) => {
 app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
   const { imdbId } = req.params;
   const targetLang = req.query.lang || "pt";
-  const cachePath = path.join(subtitlesDir, `${imdbId}_${targetLang}.srt`);
+  const cleanId = imdbId.replace("tt", "");
+  const cachePath = path.join(subtitlesDir, `${cleanId}_${targetLang}.srt`);
 
   console.log(`[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`);
 
@@ -122,7 +128,7 @@ app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
     const body = [
       {
         id: `${imdbId}:${targetLang}`,
-        url: `${req.protocol}://${req.get("host")}/subtitles/file/${imdbId}_${targetLang}.srt`,
+        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cleanId}_${targetLang}.srt`,
         lang: targetLang,
         name: `Auto-Translated (${targetLang.toUpperCase()})`,
       },
@@ -130,7 +136,7 @@ app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
 
     res.json({ subtitles: body });
   } catch (err) {
-    console.error("Erro geral:", err.message);
+    console.error("❌ Erro geral:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
