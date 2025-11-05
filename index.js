@@ -118,7 +118,7 @@ app.get("/manifest.json", (req, res) => {
 // =======================
 // Rota principal de legendas
 // =======================
-app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
+app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
   const { imdbId } = req.params;
   const targetLang = req.query.lang || "pt";
   const cleanId = imdbId.replace("tt", "");
