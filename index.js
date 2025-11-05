@@ -23,18 +23,40 @@ const cacheFilePath = (type, imdb, lang) =>
   path.join(subtitlesDir, `${type}_${imdb}_${lang}.srt`);
 
 // Tradução segura com timeout
-async function safeTranslate(text, lang) {
-  const timeoutMs = 30000; // 30s por bloco
-  return Promise.race([
-    translate(text, { to: lang }).then((r) => r.text),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout de tradução")), timeoutMs)
-    ),
-  ]).catch((err) => {
-    console.error("Erro traduzindo bloco:", err.message);
-    return text;
-  });
+// Tradução segura com retry e tolerância a falhas parciais
+async function safeTranslate(text, lang, attempt = 1) {
+  const timeoutMs = 30000; // 30s por tentativa
+  const tlds = ["com", "com.br"];
+  const tld = tlds[attempt % tlds.length];
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    const result = await translate(text, {
+      to: lang,
+      forceBatch: false, // traduz de forma mais estável
+      rejectOnPartialFail: false, // ignora falhas parciais
+      tld,
+    });
+
+    clearTimeout(timeout);
+    return result.text;
+  } catch (err) {
+    console.warn(
+      `⚠️ Erro traduzindo bloco (tentativa ${attempt}): ${err.message}`
+    );
+
+    if (attempt < 3) {
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+      return safeTranslate(text, lang, attempt + 1);
+    } else {
+      console.error("❌ Falha definitiva ao traduzir bloco:", err.message);
+      return text; // devolve texto original se falhar
+    }
+  }
 }
+
 
 // Divide array em pedaços
 const chunkArray = (arr, size) => {
@@ -70,7 +92,7 @@ app.get("/subtitles/:type/:imdb", async (req, res) => {
     console.log(`[${new Date().toISOString()}] Legenda original obtida (${originalSubtitle.length} bytes)`);
 
     const linhas = originalSubtitle.split("\n");
-    const blocos = chunkArray(linhas, 500); // 500 linhas por bloco
+    const blocos = chunkArray(linhas, 200); // 500 linhas por bloco
     const traduzido = [];
 
     console.log(`Traduzindo ${blocos.length} blocos (${linhas.length} linhas totais)...`);
