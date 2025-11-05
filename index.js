@@ -57,7 +57,7 @@ async function translateSubtitle(content, targetLang = "pt") {
   let temp = "";
 
   for (const line of lines) {
-    if (temp.length + line.length < 200) {
+    if (temp.length + line.length < 4500) {
       temp += line + "\n";
     } else {
       blocks.push(temp);
