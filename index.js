@@ -26,29 +26,36 @@ async function getSubtitle(imdbId) {
   const url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
 
-  const response = await fetch(url, {
-    headers: { "User-Agent": "TemporaryUserAgent" },
-  });
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "TemporaryUserAgent" },
+    });
 
-  if (!response.ok)
-    throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+    if (!response.ok)
+      throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
 
-  const data = await response.json();
-  if (!Array.isArray(data) || data.length === 0)
-    throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
+    const data = await response.json();
+    if (!Array.isArray(data) || data.length === 0)
+      throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
 
-  const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
-  if (!subUrl) throw new Error("Link da legenda inválido.");
+    const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
+    if (!subUrl) throw new Error("Link da legenda inválido.");
 
-  console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
+    console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
 
-  const subRes = await fetch(subUrl);
-  const buffer = await subRes.arrayBuffer();
-  return Buffer.from(buffer).toString("utf-8");
+    const subRes = await fetch(subUrl);
+    if (!subRes.ok) throw new Error(`Falha ao baixar legenda: ${subRes.statusText}`);
+    const buffer = await subRes.arrayBuffer();
+
+    return Buffer.from(buffer).toString("utf-8");
+  } catch (err) {
+    console.error("❌ Erro ao buscar legenda:", err.message);
+    throw err;
+  }
 }
 
 // =======================
-// Traduz legenda (com blocos paralelos de até 5000 chars)
+// Traduz legenda (com blocos de até 4500 chars)
 // =======================
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
@@ -56,9 +63,8 @@ async function translateSubtitle(content, targetLang = "pt") {
   let temp = "";
 
   for (const line of lines) {
-    if (temp.length + line.length < 4500) {
-      temp += line + "\n";
-    } else {
+    if (temp.length + line.length < 4500) temp += line + "\n";
+    else {
       blocks.push(temp);
       temp = line + "\n";
     }
@@ -69,7 +75,6 @@ async function translateSubtitle(content, targetLang = "pt") {
 
   let translated = new Array(blocks.length).fill("");
 
-  // 🔹 Função auxiliar para processar blocos em lotes
   async function processBatch(start, end) {
     const batch = blocks.slice(start, end).map(async (block, i) => {
       const index = start + i;
@@ -79,13 +84,12 @@ async function translateSubtitle(content, targetLang = "pt") {
         console.log(`✔️ Bloco ${index + 1}/${blocks.length} traduzido`);
       } catch (err) {
         console.error(`❌ Erro no bloco ${index + 1}:`, err.message);
-        translated[index] = block; // mantém original em caso de falha
+        translated[index] = block;
       }
     });
     await Promise.allSettled(batch);
   }
 
-  // 🔹 Executa 4 blocos em paralelo
   const batchSize = 4;
   for (let i = 0; i < blocks.length; i += batchSize) {
     await processBatch(i, i + batchSize);
@@ -98,20 +102,21 @@ async function translateSubtitle(content, targetLang = "pt") {
 // Manifest do addon
 // =======================
 app.get("/manifest.json", (req, res) => {
-  res.json({
-    id: "auto-translate-rdg",
+  const manifest = {
+    id: "org.rdg.autotranslate",
     version: "1.0.0",
     name: "Auto Translate RDG",
-    description: "Addon que traduz legendas automaticamente para PT-BR",
+    description: "Traduz legendas automaticamente para PT-BR",
     resources: ["subtitles"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
     catalogs: [],
-  });
+  };
+  res.json(manifest);
 });
 
 // =======================
-// Rota de legendas
+// Rota principal de legendas
 // =======================
 app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
   const { imdbId } = req.params;
@@ -119,18 +124,17 @@ app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
   const cleanId = imdbId.replace("tt", "");
   const cachePath = path.join(subtitlesDir, `${cleanId}_${targetLang}.srt`);
 
-  console.log(`[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`);
+  console.log(`[${new Date().toISOString()}] 🔹 Requisição recebida -> imdb: ${imdbId}`);
 
   try {
-    if (await fs.pathExists(cachePath)) {
-      console.log(`✅ Cache encontrado para ${imdbId}`);
-    } else {
+    if (!(await fs.pathExists(cachePath))) {
+      console.log(`🕐 Nenhum cache encontrado. Buscando e traduzindo...`);
       const original = await getSubtitle(imdbId);
-      console.log(`[${new Date().toISOString()}] Legenda original obtida (${original.length} bytes)`);
-
       const translated = await translateSubtitle(original, targetLang);
       await fs.writeFile(cachePath, translated, "utf-8");
-      console.log(`[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(cachePath)}`);
+      console.log(`💾 Legenda traduzida salva em cache: ${path.basename(cachePath)}`);
+    } else {
+      console.log(`✅ Cache existente para ${imdbId}`);
     }
 
     const body = [
@@ -150,7 +154,7 @@ app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
 });
 
 // =======================
-// Rota para servir arquivo SRT
+// Rota para servir o arquivo SRT traduzido
 // =======================
 app.get("/subtitles/file/:file", async (req, res) => {
   const file = path.join(subtitlesDir, req.params.file);
@@ -163,8 +167,15 @@ app.get("/subtitles/file/:file", async (req, res) => {
 });
 
 // =======================
-// Iniciar servidor
+// Teste rápido (homepage simples)
+// =======================
+app.get("/", (req, res) => {
+  res.send("✅ Addon Auto-Translate RDG está rodando. Acesse /manifest.json");
+});
+
+// =======================
+// Inicializa servidor
 // =======================
 app.listen(PORT, () => {
-  console.log(`Servidor iniciado na porta ${PORT}`);
+  console.log(`🚀 Servidor iniciado na porta ${PORT}`);
 });
