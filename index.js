@@ -49,7 +49,39 @@ async function getSubtitle(imdbId) {
 }
 
 // =======================
-// Traduz legenda em blocos de 200 caracteres
+// Função auxiliar: traduz blocos em lotes paralelos
+// =======================
+async function traduzirEmLotes(blocos, traduzirFunc, limite = 4) {
+  const resultados = [];
+  let index = 0;
+
+  while (index < blocos.length) {
+    const lote = blocos.slice(index, index + limite);
+
+    // Executa traduções em paralelo dentro do limite
+    const traducoes = await Promise.all(
+      lote.map(async (texto, i) => {
+        const blocoIndex = index + i + 1;
+        try {
+          const res = await traduzirFunc(texto);
+          console.log(`✔️ Bloco ${blocoIndex}/${blocos.length} traduzido`);
+          return res;
+        } catch (err) {
+          console.error(`❌ Erro no bloco ${blocoIndex}: ${err.message}`);
+          return texto; // mantém o original se falhar
+        }
+      })
+    );
+
+    resultados.push(...traducoes);
+    index += limite;
+  }
+
+  return resultados;
+}
+
+// =======================
+// Traduz legenda em blocos (máx. 4500 caracteres)
 // =======================
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
@@ -66,24 +98,20 @@ async function translateSubtitle(content, targetLang = "pt") {
   }
   if (temp) blocks.push(temp);
 
-  console.log(`Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`);
+  console.log(
+    `Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`
+  );
 
-  let translated = "";
-  let count = 0;
+  // função de tradução individual
+  const traduzirFunc = async (texto) => {
+    const res = await translate(texto, { to: targetLang });
+    return res.text;
+  };
 
-  for (const block of blocks) {
-    count++;
-    try {
-      const res = await translate(block, { to: targetLang });
-      translated += res.text + "\n";
-      console.log(`✔️ Bloco ${count}/${blocks.length} traduzido`);
-    } catch (err) {
-      console.error(`❌ Erro no bloco ${count}:`, err.message);
-      translated += block; // mantém o original se falhar
-    }
-  }
+  // traduz em paralelo (4 blocos por vez)
+  const traducoes = await traduzirEmLotes(blocks, traduzirFunc, 4);
 
-  return translated;
+  return traducoes.join("\n");
 }
 
 // =======================
@@ -111,24 +139,34 @@ app.get("/subtitles/:type/:imdbId.json", async (req, res) => {
   const cleanId = imdbId.replace("tt", "");
   const cachePath = path.join(subtitlesDir, `${cleanId}_${targetLang}.srt`);
 
-  console.log(`[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`);
+  console.log(
+    `[${new Date().toISOString()}] Nova requisição -> type: ${req.params.type}, imdb: ${imdbId}`
+  );
 
   try {
     if (await fs.pathExists(cachePath)) {
       console.log(`✅ Cache encontrado para ${imdbId}`);
     } else {
       const original = await getSubtitle(imdbId);
-      console.log(`[${new Date().toISOString()}] Legenda original obtida (${original.length} bytes)`);
+      console.log(
+        `[${new Date().toISOString()}] Legenda original obtida (${original.length} bytes)`
+      );
 
       const translated = await translateSubtitle(original, targetLang);
       await fs.writeFile(cachePath, translated, "utf-8");
-      console.log(`[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(cachePath)}`);
+      console.log(
+        `[${new Date().toISOString()}] Legenda traduzida salva: ${path.basename(
+          cachePath
+        )}`
+      );
     }
 
     const body = [
       {
         id: `${imdbId}:${targetLang}`,
-        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cleanId}_${targetLang}.srt`,
+        url: `${req.protocol}://${req.get(
+          "host"
+        )}/subtitles/file/${cleanId}_${targetLang}.srt`,
         lang: targetLang,
         name: `Auto-Translated (${targetLang.toUpperCase()})`,
       },
