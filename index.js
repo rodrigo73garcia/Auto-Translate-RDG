@@ -19,7 +19,7 @@ const subtitlesDir = path.join(__dirname, "subtitles");
 await fs.ensureDir(subtitlesDir);
 
 // =======================
-// 🔹 Função para obter legenda original do OpenSubtitles
+// Função para obter legenda original do OpenSubtitles
 // =======================
 async function getSubtitle(imdbId) {
   const parts = imdbId.replace("tt", "").split(":");
@@ -27,12 +27,11 @@ async function getSubtitle(imdbId) {
   const season = parts[1];
   const episode = parts[2];
 
+  // ✅ URL corrigido com ordem e formato corretos
   let url;
   if (season && episode) {
-    // Série
-    url = `https://rest.opensubtitles.org/search/episode-${episode}/season-${season}/imdbid-${cleanId}/sublanguageid-eng`;
+    url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/season-${season}/episode-${episode}/sublanguageid-eng`;
   } else {
-    // Filme
     url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
   }
 
@@ -50,7 +49,9 @@ async function getSubtitle(imdbId) {
     if (!Array.isArray(data) || data.length === 0)
       throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
 
-    const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
+    // Pega a legenda com maior número de downloads (melhor correspondência)
+    const best = data.sort((a, b) => (b.SubDownloadsCnt || 0) - (a.SubDownloadsCnt || 0))[0];
+    const subUrl = best.SubDownloadLink?.replace(".gz", "");
     if (!subUrl) throw new Error("Link da legenda inválido.");
 
     console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
@@ -67,7 +68,7 @@ async function getSubtitle(imdbId) {
 }
 
 // =======================
-// 🔹 Traduz legenda (em blocos de até 4500 caracteres)
+// Traduz legenda (com blocos de até 4500 chars)
 // =======================
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
@@ -111,7 +112,7 @@ async function translateSubtitle(content, targetLang = "pt") {
 }
 
 // =======================
-// 🔹 Manifest do Addon (Stremio)
+// Manifest do addon
 // =======================
 app.get("/manifest.json", (req, res) => {
   const manifest = {
@@ -128,7 +129,7 @@ app.get("/manifest.json", (req, res) => {
 });
 
 // =======================
-// 🔹 Rota principal de legendas
+// Rota principal de legendas
 // =======================
 app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
   const { imdbId } = req.params;
@@ -166,7 +167,7 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
 });
 
 // =======================
-// 🔹 Servir arquivo SRT traduzido
+// Rota para servir o arquivo SRT traduzido
 // =======================
 app.get("/subtitles/file/:file", async (req, res) => {
   const file = path.join(subtitlesDir, req.params.file);
@@ -179,14 +180,14 @@ app.get("/subtitles/file/:file", async (req, res) => {
 });
 
 // =======================
-// 🔹 Página inicial simples
+// Teste rápido (homepage simples)
 // =======================
 app.get("/", (req, res) => {
   res.send("✅ Addon Auto-Translate RDG está rodando. Acesse /manifest.json");
 });
 
 // =======================
-// 🔹 Inicializa servidor
+// Inicializa servidor
 // =======================
 app.listen(PORT, () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
