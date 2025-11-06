@@ -1,7 +1,7 @@
 {
   "name": "auto-translate-rdg",
-  "version": "1.0.0",
-  "description": "Addon Stremio - Traduz legendas automaticamente (sem custo, usando google-translate-api-x)",
+  "version": "1.1.0",
+  "description": "Addon para o Stremio que busca legendas no OpenSubtitles e traduz automaticamente para PT-BR via Google Translate API-X.",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -9,17 +9,24 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "fs-extra": "^11.1.1",
-    "google-translate-api-x": "^10.7.0",
-    "morgan": "^1.10.0",
-    "node-fetch": "^3.3.2"
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "google-translate-api-x": "^10.7.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.0"
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "keywords": [
+    "stremio",
+    "subtitles",
+    "auto-translate",
+    "google-translate",
+    "opensubtitles",
+    "addon"
+  ],
+  "author": "Rodrigo Garcia (RDG)",
+  "license": "MIT"
 }
