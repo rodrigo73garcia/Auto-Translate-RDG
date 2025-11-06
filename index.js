@@ -10,8 +10,8 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // Base URL do seu app (Render)
-const BASE_URL = "https://auto-translate-rdg.onrender.com";
-const OPEN_SUBTITLES_API = "https://rest.opensubtitles.org";
+const BASE_URL = process.env.PUBLIC_BASE_URL || "https://auto-translate-rdg.onrender.com";
+const OPEN_SUBTITLES_API = process.env.OPEN_SUBTITLES_API || "https://rest.opensubtitles.org";
 const CACHE_DIR = "./cache";
 
 // Garantir diretório de cache
