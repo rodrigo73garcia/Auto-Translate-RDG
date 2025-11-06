@@ -3,17 +3,18 @@ import fetch from "node-fetch";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import translate from "google-translate-api-x"; // Mantenho, mas recomendo cautela (ver notas)
+import translate from "google-translate-api-x"; 
+// ⚠️ ATENÇÃO: A biblioteca acima está a falhar com 'Method Not Allowed'. 
+// Este código tenta mitigar, mas a SOLUÇÃO REAL é a troca da API.
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// Render exige que o serviço escute na porta fornecida pela variável de ambiente PORT
 const PORT = process.env.PORT || 10000; 
 
-// Aumentamos o delay máximo para 15 segundos em caso de erro.
-// Isso é uma tentativa de mitigar o erro "Too Many Requests".
+// Aumentamos o delay máximo para 15 segundos em caso de erro, 
+// tentando evitar o bloqueio (Too Many Requests).
 const MAX_ERROR_DELAY_MS = 15000; 
 
 // Middleware CORS
@@ -35,18 +36,18 @@ if (!fs.existsSync(subtitlesDir)) {
 }
 
 // =======================
-// Função para obter legenda original do OpenSubtitles - CORREÇÕES IMPLEMENTADAS
+// Função para obter legenda original do OpenSubtitles - COM DEBUG
 // =======================
 async function getSubtitle(imdbId, season, episode) {
   // Corrigido para remover 'tt' e garantir apenas o ID numérico.
   const cleanId = imdbId.replace(/tt/i, "").split(":")[0];
   
-  // 🔧 CORREÇÃO 1: Definindo o User-Agent como variável de ambiente (boa prática)
+  // Define um User-Agent.
   const USER_AGENT = process.env.OPEN_SUBTITLES_USER_AGENT || "TemporaryUserAgent";
 
   let url;
   if (season && episode) {
-    // Corrigido para usar a URL de série
+    // URL para série
     url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/season-${season}/episode-${episode}/sublanguageid-eng`;
     console.log(`[${new Date().toISOString()}] Buscando série: IMDB:${cleanId} S${season}E${episode}`);
   } else {
@@ -56,15 +57,14 @@ async function getSubtitle(imdbId, season, episode) {
   }
   
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
+  // 🚨 LINHA DE DEBUG CRÍTICA:
+  console.log(`[DEBUG] URL FINAL (antes do fetch): ${url}`); 
 
   try {
     const response = await fetch(url, {
-      // O OpenSubtitles exige um User-Agent.
       headers: { "User-Agent": USER_AGENT },
     });
-    
-    // ⚠️ Atenção: A API do OpenSubtitles pode retornar 401 (Não Autorizado) ou 403 (Proibido) 
-    // se o User-Agent não estiver registrado ou se estiver bloqueado.
+
     if (!response.ok) {
       throw new Error(`Erro HTTP ${response.status} na busca OpenSubtitles: ${response.statusText}`);
     }
@@ -74,7 +74,6 @@ async function getSubtitle(imdbId, season, episode) {
     if (!Array.isArray(data) || data.length === 0)
       throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
 
-    // O link de download geralmente vem com .gz e precisamos descompactar
     const subUrl = data[0].SubDownloadLink; 
 
     if (!subUrl) throw new Error("Link de download da legenda não encontrado.");
@@ -86,16 +85,9 @@ async function getSubtitle(imdbId, season, episode) {
     if (!subRes.ok)
       throw new Error(`Falha ao baixar legenda: ${subRes.statusText}`);
 
-    // O OpenSubtitles geralmente retorna um arquivo GZIP. O 'node-fetch' descompacta 
-    // automaticamente se o cabeçalho 'Content-Encoding: gzip' estiver presente.
-    // Mantenho o processamento como buffer para garantir a decodificação UTF-8.
     const buffer = await subRes.arrayBuffer();
     return Buffer.from(buffer).toString("utf-8");
   } catch (err) {
-    // Adicionei a verificação do erro para o caso do ENOTFOUND _
-    if (err.code === 'ENOTFOUND') {
-      console.error("❌ ERRO FATAL DE DNS/URL: Verifique a URL base da API OpenSubtitles.");
-    }
     console.error("❌ Erro ao buscar legenda:", err.message);
     throw err;
   }
@@ -124,7 +116,6 @@ async function translateSubtitle(content, targetLang = "pt") {
 
   const translated = [];
 
-  // 🔧 CORREÇÃO 2: Aumentei o delay e tratei o loop
   for (let i = 0; i < blocks.length; i++) {
     let attempt = 0;
     const MAX_ATTEMPTS = 5;
@@ -166,7 +157,7 @@ async function translateSubtitle(content, targetLang = "pt") {
 }
 
 // =======================
-// Manifest do addon (Nenhuma alteração necessária)
+// Manifest do addon
 // =======================
 app.get("/manifest.json", (req, res) => {
   const manifest = {
@@ -187,7 +178,7 @@ app.get("/manifest.json", (req, res) => {
 });
 
 // =======================
-// Rota para filmes (Nenhuma alteração crítica, apenas limpeza)
+// Rota para filmes
 // =======================
 app.get("/subtitles/movie/:imdbId/:filename", async (req, res) => {
   const { imdbId } = req.params;
@@ -214,19 +205,16 @@ app.get("/subtitles/movie/:imdbId/:filename", async (req, res) => {
     
   } catch (err) {
     console.error("❌ Erro geral:", err.message);
-    // Em caso de erro, retorna um array de legendas vazio (como o Stremio espera)
-    res.json({ subtitles: [] });
+    res.json({ subtitles: [] }); // Retorna array vazio em caso de erro
   }
 });
 
 // =======================
-// Rota para séries - CORREÇÃO DE ERRO PRINCIPAL
+// Rota para séries
 // =======================
 app.get("/subtitles/series/:id/:filename", async (req, res) => {
   try {
-    // 🔧 CORREÇÃO 3: O erro ENOTFOUND _ no log original provavelmente ocorreu
-    // porque o 'imdbId' estava mal formatado ou a URL não foi construída corretamente.
-    // O seu tratamento de decodificação é crucial aqui.
+    // Decodifica URL parameters
     const decodedId = decodeURIComponent(req.params.id);
     const partes = decodedId.split(":");
     
@@ -259,13 +247,12 @@ app.get("/subtitles/series/:id/:filename", async (req, res) => {
     
   } catch (err) {
     console.error("❌ Erro rota série:", err.message);
-    // Em caso de erro, retorna um array de legendas vazio
-    res.json({ subtitles: [] }); 
+    res.json({ subtitles: [] }); // Retorna array vazio em caso de erro
   }
 });
 
 // =======================
-// Rota para servir arquivo SRT (Nenhuma alteração)
+// Rota para servir arquivo SRT
 // =======================
 app.get("/subtitles/file/:file", async (req, res) => {
   const file = path.join(subtitlesDir, req.params.file);
@@ -279,7 +266,7 @@ app.get("/subtitles/file/:file", async (req, res) => {
 });
 
 // =======================
-// Rotas auxiliares (Nenhuma alteração)
+// Rotas auxiliares
 // =======================
 app.get("/", (req, res) => {
   res.send("✅ Addon Auto-Translate RDG está rodando. Acesse /manifest.json");
@@ -290,7 +277,7 @@ app.get("/health", (req, res) => {
 });
 
 // =======================
-// Inicialização (Adiciona '0.0.0.0' para garantir compatibilidade com Render)
+// Inicialização
 // =======================
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
