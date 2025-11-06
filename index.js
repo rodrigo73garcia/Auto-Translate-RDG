@@ -1,11 +1,9 @@
 import express from "express";
-import fetch from "node-fetch";
+import axios from "axios"; // ⬅️ SUBSTITUÍDO: Usando Axios
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import translate from "google-translate-api-x"; 
-// ⚠️ ATENÇÃO: A biblioteca acima está a falhar com 'Method Not Allowed'. 
-// A solução real é a troca para uma API de tradução oficial (DeepL/Google Cloud).
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,10 +11,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 10000; 
 
-// Aumentamos o delay máximo para 15 segundos em caso de erro.
 const MAX_ERROR_DELAY_MS = 15000; 
-// Tentativas máximas para a tradução
 const MAX_ATTEMPTS = 5; 
+const USER_AGENT = process.env.OPEN_SUBTITLES_USER_AGENT || "TemporaryUserAgent";
 
 // Middleware CORS
 app.use((req, res, next) => {
@@ -37,41 +34,29 @@ if (!fs.existsSync(subtitlesDir)) {
 }
 
 // =======================
-// Função para obter legenda original do OpenSubtitles - CORREÇÃO DE DNS
+// Função para obter legenda original do OpenSubtitles - USANDO AXIOS
 // =======================
 async function getSubtitle(imdbId, season, episode) {
-  // Corrigido para remover 'tt' e garantir apenas o ID numérico.
   const cleanId = imdbId.replace(/tt/i, "").split(":")[0];
-  
-  // Define um User-Agent.
-  const USER_AGENT = process.env.OPEN_SUBTITLES_USER_AGENT || "TemporaryUserAgent";
 
   let url;
   if (season && episode) {
-    // URL para série
     url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/season-${season}/episode-${episode}/sublanguageid-eng`;
     console.log(`[${new Date().toISOString()}] Buscando série: IMDB:${cleanId} S${season}E${episode}`);
   } else {
-    // URL para filme
     url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
     console.log(`[${new Date().toISOString()}] Buscando filme: IMDB:${cleanId}`);
   }
   
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
-  
+  
   try {
-    // 🔧 CORREÇÃO CRÍTICA: Forçar o parse do URL com new URL() para evitar corrupção de string (ENOTFOUND _)
-    const fetchUrl = new URL(url); 
-    
-    const response = await fetch(fetchUrl, {
+    // 🔧 AXIOS: Usando axios.get para a busca inicial
+    const response = await axios.get(url, {
       headers: { "User-Agent": USER_AGENT },
     });
-
-    if (!response.ok) {
-      throw new Error(`Erro HTTP ${response.status} na busca OpenSubtitles: ${response.statusText}`);
-    }
-
-    const data = await response.json();
+    
+    const data = response.data; // Axios retorna o objeto de dados diretamente
 
     if (!Array.isArray(data) || data.length === 0)
       throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
@@ -82,21 +67,22 @@ async function getSubtitle(imdbId, season, episode) {
 
     console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
 
-    const subRes = await fetch(subUrl);
+    // 🔧 AXIOS: Usando axios.get para o download do ficheiro (com responseType: 'arraybuffer')
+    const subRes = await axios.get(subUrl, { responseType: 'arraybuffer' });
 
-    if (!subRes.ok)
-      throw new Error(`Falha ao baixar legenda: ${subRes.statusText}`);
-
-    const buffer = await subRes.arrayBuffer();
-    return Buffer.from(buffer).toString("utf-8");
+    // Axios lida com erros HTTP como exceções, então response.ok não é necessário
+    
+    // O Axios automaticamente descompacta o GZIP se o servidor enviar o header correto
+    return Buffer.from(subRes.data).toString("utf-8");
   } catch (err) {
-    console.error("❌ Erro ao buscar legenda:", err.message);
+    // Axios usa err.message para erros de rede, ou err.response.status para erros HTTP
+    console.error("❌ Erro ao buscar legenda:", err.message || err.response?.statusText);
     throw err;
   }
 }
 
 // =======================
-// Traduz legenda COM PROTECÇÃO CONTRA RATE LIMITING (Aprimorada)
+// Traduz legenda (Mantido o tratamento de Rate Limit)
 // =======================
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
@@ -129,7 +115,7 @@ async function translateSubtitle(content, targetLang = "pt") {
         translated.push(res.text);
         console.log(`✅ Bloco ${i + 1}/${blocks.length} traduzido com sucesso.`);
         
-        // ⏰ DELAY de sucesso: 1 a 3 segundos entre blocos
+        // DELAY de sucesso: 1 a 3 segundos entre blocos
         if (i < blocks.length - 1) {
           const successDelay = 1000 + Math.random() * 2000; 
           console.log(`⏳ Aguardando ${Math.round(successDelay)}ms antes do próximo bloco...`);
@@ -142,11 +128,11 @@ async function translateSubtitle(content, targetLang = "pt") {
         
         if (attempt >= MAX_ATTEMPTS) {
           console.error("🛑 Máximo de tentativas alcançado. Pulando bloco.");
-          translated.push(blocks[i]); // Mantém original se falhar após muitas tentativas
+          translated.push(blocks[i]); 
           break;
         }
         
-        // ⏰ Delay em caso de erro: 5 a 15 segundos
+        // Delay em caso de erro: 5 a 15 segundos
         const errorDelay = 5000 + Math.random() * (MAX_ERROR_DELAY_MS - 5000); 
         console.log(`🚫 Erro detectado, aguardando ${Math.round(errorDelay)}ms para tentar novamente...`);
         await new Promise(resolve => setTimeout(resolve, errorDelay));
@@ -158,7 +144,7 @@ async function translateSubtitle(content, targetLang = "pt") {
 }
 
 // =======================
-// Manifest do addon (Nenhuma alteração)
+// Rotas (Nenhuma alteração)
 // =======================
 app.get("/manifest.json", (req, res) => {
   const manifest = {
@@ -178,9 +164,6 @@ app.get("/manifest.json", (req, res) => {
   res.json(manifest);
 });
 
-// =======================
-// Rota para filmes
-// =======================
 app.get("/subtitles/movie/:imdbId/:filename", async (req, res) => {
   const { imdbId } = req.params;
   const targetLang = "pt";
@@ -210,12 +193,8 @@ app.get("/subtitles/movie/:imdbId/:filename", async (req, res) => {
   }
 });
 
-// =======================
-// Rota para séries
-// =======================
 app.get("/subtitles/series/:id/:filename", async (req, res) => {
   try {
-    // Decodifica URL parameters
     const decodedId = decodeURIComponent(req.params.id);
     const partes = decodedId.split(":");
     
@@ -223,7 +202,6 @@ app.get("/subtitles/series/:id/:filename", async (req, res) => {
       return res.status(400).json({ error: "Formato inválido. Use: tt123456:season:episode" });
     }
 
-    // Garante que a ordem dos parâmetros está correta
     const [imdbId, season, episode] = partes; 
     const targetLang = "pt";
     
@@ -234,7 +212,6 @@ app.get("/subtitles/series/:id/:filename", async (req, res) => {
 
     if (!fs.existsSync(cachePath)) {
       console.log("🕐 Nenhum cache encontrado. Buscando e traduzindo...");
-      // Usa season e episode, ativando o bloco de séries em getSubtitle()
       const original = await getSubtitle(imdbId, season, episode); 
       const translated = await translateSubtitle(original, targetLang);
       fs.writeFileSync(cachePath, translated, "utf-8");
@@ -252,9 +229,6 @@ app.get("/subtitles/series/:id/:filename", async (req, res) => {
   }
 });
 
-// =======================
-// Rota para servir arquivo SRT (Nenhuma alteração)
-// =======================
 app.get("/subtitles/file/:file", async (req, res) => {
   const file = path.join(subtitlesDir, req.params.file);
 
@@ -266,9 +240,6 @@ app.get("/subtitles/file/:file", async (req, res) => {
   }
 });
 
-// =======================
-// Rotas auxiliares (Nenhuma alteração)
-// =======================
 app.get("/", (req, res) => {
   res.send("✅ Addon Auto-Translate RDG está rodando. Acesse /manifest.json");
 });
@@ -278,7 +249,7 @@ app.get("/health", (req, res) => {
 });
 
 // =======================
-// Inicialização (Nenhuma alteração)
+// Inicialização
 // =======================
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
