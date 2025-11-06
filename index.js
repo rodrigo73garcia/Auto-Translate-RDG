@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import translate from "google-translate-api-x"; 
 // ⚠️ ATENÇÃO: A biblioteca acima está a falhar com 'Method Not Allowed'. 
-// Este código tenta mitigar, mas a SOLUÇÃO REAL é a troca da API.
+// A solução real é a troca para uma API de tradução oficial (DeepL/Google Cloud).
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,9 +13,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 10000; 
 
-// Aumentamos o delay máximo para 15 segundos em caso de erro, 
-// tentando evitar o bloqueio (Too Many Requests).
+// Aumentamos o delay máximo para 15 segundos em caso de erro.
 const MAX_ERROR_DELAY_MS = 15000; 
+// Tentativas máximas para a tradução
+const MAX_ATTEMPTS = 5; 
 
 // Middleware CORS
 app.use((req, res, next) => {
@@ -36,7 +37,7 @@ if (!fs.existsSync(subtitlesDir)) {
 }
 
 // =======================
-// Função para obter legenda original do OpenSubtitles - COM DEBUG
+// Função para obter legenda original do OpenSubtitles - CORREÇÃO DE DNS
 // =======================
 async function getSubtitle(imdbId, season, episode) {
   // Corrigido para remover 'tt' e garantir apenas o ID numérico.
@@ -57,11 +58,12 @@ async function getSubtitle(imdbId, season, episode) {
   }
   
   console.log(`[${new Date().toISOString()}] Buscando legendas originais: ${url}`);
-  // 🚨 LINHA DE DEBUG CRÍTICA:
-  console.log(`[DEBUG] URL FINAL (antes do fetch): ${url}`); 
-
+  
   try {
-    const response = await fetch(url, {
+    // 🔧 CORREÇÃO CRÍTICA: Forçar o parse do URL com new URL() para evitar corrupção de string (ENOTFOUND _)
+    const fetchUrl = new URL(url); 
+    
+    const response = await fetch(fetchUrl, {
       headers: { "User-Agent": USER_AGENT },
     });
 
@@ -101,7 +103,7 @@ async function translateSubtitle(content, targetLang = "pt") {
   const blocks = [];
   let temp = "";
 
-  // Lógica de agrupamento de blocos (mantida)
+  // Lógica de agrupamento de blocos
   for (const line of lines) {
     if (temp.length + line.length < 4500) {
       temp += line + "\n";
@@ -118,8 +120,7 @@ async function translateSubtitle(content, targetLang = "pt") {
 
   for (let i = 0; i < blocks.length; i++) {
     let attempt = 0;
-    const MAX_ATTEMPTS = 5;
-
+    
     while (attempt < MAX_ATTEMPTS) {
       try {
         console.log(`🌐 Traduzindo bloco ${i + 1}/${blocks.length} (Tentativa ${attempt + 1})...`);
@@ -157,7 +158,7 @@ async function translateSubtitle(content, targetLang = "pt") {
 }
 
 // =======================
-// Manifest do addon
+// Manifest do addon (Nenhuma alteração)
 // =======================
 app.get("/manifest.json", (req, res) => {
   const manifest = {
@@ -205,7 +206,7 @@ app.get("/subtitles/movie/:imdbId/:filename", async (req, res) => {
     
   } catch (err) {
     console.error("❌ Erro geral:", err.message);
-    res.json({ subtitles: [] }); // Retorna array vazio em caso de erro
+    res.json({ subtitles: [] }); 
   }
 });
 
@@ -247,12 +248,12 @@ app.get("/subtitles/series/:id/:filename", async (req, res) => {
     
   } catch (err) {
     console.error("❌ Erro rota série:", err.message);
-    res.json({ subtitles: [] }); // Retorna array vazio em caso de erro
+    res.json({ subtitles: [] }); 
   }
 });
 
 // =======================
-// Rota para servir arquivo SRT
+// Rota para servir arquivo SRT (Nenhuma alteração)
 // =======================
 app.get("/subtitles/file/:file", async (req, res) => {
   const file = path.join(subtitlesDir, req.params.file);
@@ -266,7 +267,7 @@ app.get("/subtitles/file/:file", async (req, res) => {
 });
 
 // =======================
-// Rotas auxiliares
+// Rotas auxiliares (Nenhuma alteração)
 // =======================
 app.get("/", (req, res) => {
   res.send("✅ Addon Auto-Translate RDG está rodando. Acesse /manifest.json");
@@ -277,7 +278,7 @@ app.get("/health", (req, res) => {
 });
 
 // =======================
-// Inicialização
+// Inicialização (Nenhuma alteração)
 // =======================
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
