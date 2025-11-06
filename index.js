@@ -4,6 +4,12 @@ import fs from "fs";
 import path from "path";
 import translate from "google-translate-api-x";
 
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  next();
+});
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
