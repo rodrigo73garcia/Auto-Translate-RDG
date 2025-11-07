@@ -57,7 +57,7 @@ async function saveConfig(apiKey, targetLang) {
     apiKey,
     targetLang,
     createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 dias
   });
   
   return id;
@@ -94,7 +94,6 @@ app.post("/api/config", async (req, res) => {
     
     const id = await saveConfig(apiKey, targetLang);
     
-    // Forçar HTTPS
     const protocol = req.headers["x-forwarded-proto"] === "https" || process.env.NODE_ENV === "production" ? "https" : req.protocol;
     const manifestUrl = `${protocol}://${req.get("host")}/manifest.json?config=${id}`;
     
@@ -126,18 +125,20 @@ app.get("/api/languages", (req, res) => {
     nl: "Nederlands",
     sv: "Svenska",
     da: "Dansk",
+    ar: "العربية",
+    hi: "हिन्दी",
   };
   
   res.json(languages);
 });
 
 // =======================
-// Funções de Legendas
+// Função para obter legenda (SOMENTE NOVA API)
 // =======================
 
-async function getSubtitleNewAPI(imdbId, apiKey, type = "movie", season = null, episode = null) {
+async function getSubtitleFromOpenSubtitles(imdbId, apiKey, type = "movie", season = null, episode = null) {
   if (!apiKey) {
-    throw new Error("API key não disponível");
+    throw new Error("API key do OpenSubtitles é obrigatória");
   }
   
   const cleanId = imdbId.replace("tt", "").split(":")[0];
@@ -157,29 +158,41 @@ async function getSubtitleNewAPI(imdbId, apiKey, type = "movie", season = null, 
   
   const url = `https://api.opensubtitles.com/api/v1/subtitles?${searchParams}`;
   
+  console.log(`[${new Date().toISOString()}] 🔍 Buscando legendas: ${url}`);
+  
   const response = await fetch(url, {
     headers: {
       "Api-Key": apiKey,
       "User-Agent": "StremioAutoTranslateRDG v1.0",
+      "Content-Type": "application/json",
     },
   });
   
   if (!response.ok) {
-    throw new Error(`Nova API falhou ${response.status}`);
+    const errorText = await response.text();
+    throw new Error(`OpenSubtitles API erro ${response.status}: ${errorText}`);
   }
   
   const data = await response.json();
   
   if (!data.data || data.data.length === 0) {
-    throw new Error("Nenhuma legenda encontrada");
+    throw new Error("Nenhuma legenda em inglês encontrada no OpenSubtitles");
   }
   
+  // Ordena por rating e pega a melhor
   const bestSub = data.data.sort((a, b) => 
     (b.attributes.ratings || 0) - (a.attributes.ratings || 0)
   )[0];
   
+  if (!bestSub.attributes.files || bestSub.attributes.files.length === 0) {
+    throw new Error("Legenda sem arquivo disponível");
+  }
+  
   const fileId = bestSub.attributes.files[0].file_id;
   
+  console.log(`[${new Date().toISOString()}] 📥 Baixando legenda FileID: ${fileId}`);
+  
+  // Faz o download
   const downloadResponse = await fetch(`https://api.opensubtitles.com/api/v1/download`, {
     method: "POST",
     headers: {
@@ -191,116 +204,88 @@ async function getSubtitleNewAPI(imdbId, apiKey, type = "movie", season = null, 
   });
   
   if (!downloadResponse.ok) {
-    throw new Error(`Falha no download`);
+    const errorText = await downloadResponse.text();
+    throw new Error(`Erro no download: ${errorText}`);
   }
   
   const downloadData = await downloadResponse.json();
+  
+  if (!downloadData.link) {
+    throw new Error("Link de download não disponível");
+  }
+  
   const subRes = await fetch(downloadData.link);
   
   if (!subRes.ok) {
-    throw new Error(`Falha ao baixar arquivo`);
+    throw new Error(`Falha ao baixar arquivo da legenda: ${subRes.statusText}`);
   }
   
   const buffer = await subRes.arrayBuffer();
-  return Buffer.from(buffer).toString("utf-8");
+  const content = Buffer.from(buffer).toString("utf-8");
+  
+  console.log(`[${new Date().toISOString()}] ✅ Legenda baixada com sucesso (${content.length} chars)`);
+  
+  return content;
 }
 
-async function getSubtitleOldAPI(imdbId, type = "movie", season = null, episode = null) {
-  const cleanId = imdbId.replace("tt", "").split(":")[0];
-  
-  let url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
-  
-  if (type === "series" && season && episode) {
-    url += `/season-${season}/episode-${episode}`;
-  }
-  
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "TemporaryUserAgent",
-    },
-  });
-  
-  if (!response.ok) {
-    throw new Error(`API Antiga falhou ${response.status}`);
-  }
-  
-  const data = await response.json();
-  
-  if (!Array.isArray(data) || data.length === 0) {
-    throw new Error("Nenhuma legenda encontrada");
-  }
-  
-  const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
-  if (!subUrl) {
-    throw new Error("Link da legenda inválido");
-  }
-  
-  const subRes = await fetch(subUrl);
-  if (!subRes.ok) {
-    throw new Error(`Falha ao baixar`);
-  }
-  
-  const buffer = await subRes.arrayBuffer();
-  return Buffer.from(buffer).toString("utf-8");
-}
-
-async function getSubtitle(imdbId, apiKey = null, type = "movie", season = null, episode = null) {
-  if (apiKey) {
-    try {
-      console.log("🔄 Tentando Nova API...");
-      return await getSubtitleNewAPI(imdbId, apiKey, type, season, episode);
-    } catch (err) {
-      console.warn(`⚠️ Nova API falhou: ${err.message}`);
-    }
-  }
-  
-  try {
-    console.log("🔄 Tentando API Antiga (fallback)...");
-    return await getSubtitleOldAPI(imdbId, type, season, episode);
-  } catch (err) {
-    console.error(`❌ API Antiga também falhou: ${err.message}`);
-    throw new Error(`Ambas APIs falharam`);
-  }
-}
+// =======================
+// Função de Tradução com Retry e Delay
+// =======================
 
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
   const blocks = [];
   let temp = "";
   
+  // Divide em blocos menores para evitar timeout
   for (const line of lines) {
-    if (temp.length + line.length < 4500) {
+    if (temp.length + line.length < 3500) { // Reduzido para 3500
       temp += line + "\n";
     } else {
-      blocks.push(temp);
+      if (temp.trim()) blocks.push(temp);
       temp = line + "\n";
     }
   }
-  if (temp) blocks.push(temp);
+  if (temp.trim()) blocks.push(temp);
   
-  console.log(`Traduzindo ${blocks.length} blocos...`);
+  console.log(`[${new Date().toISOString()}] 🌐 Traduzindo ${blocks.length} blocos para ${targetLang}...`);
   
-  let translated = new Array(blocks.length).fill("");
+  let translated = [];
   
-  async function processBatch(start, end) {
-    const batch = blocks.slice(start, end).map(async (block, i) => {
-      const index = start + i;
+  // Processa blocos sequencialmente com delay para evitar rate limit
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
       try {
+        // Delay entre requisições (evita rate limit)
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+        }
+        
         const res = await translate(block, { to: targetLang });
-        translated[index] = res.text;
-        console.log(`✔️ Bloco ${index + 1}/${blocks.length}`);
+        translated.push(res.text);
+        console.log(`✔️ Bloco ${i + 1}/${blocks.length} traduzido`);
+        break; // Sucesso, sai do loop de retry
+        
       } catch (err) {
-        console.error(`❌ Erro bloco ${index + 1}`);
-        translated[index] = block;
+        attempts++;
+        console.warn(`⚠️ Erro no bloco ${i + 1} (tentativa ${attempts}/${maxAttempts}): ${err.message}`);
+        
+        if (attempts >= maxAttempts) {
+          console.error(`❌ Bloco ${i + 1} falhou após ${maxAttempts} tentativas. Mantendo original.`);
+          translated.push(block); // Mantém original se falhar
+        } else {
+          // Espera mais tempo antes de tentar novamente
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       }
-    });
-    await Promise.allSettled(batch);
+    }
   }
   
-  const batchSize = 4;
-  for (let i = 0; i < blocks.length; i += batchSize) {
-    await processBatch(i, i + batchSize);
-  }
+  console.log(`[${new Date().toISOString()}] ✅ Tradução concluída!`);
   
   return translated.join("\n");
 }
@@ -312,22 +297,33 @@ async function translateSubtitle(content, targetLang = "pt") {
 app.get("/manifest.json", async (req, res) => {
   const { config: configId } = req.query;
   
-  let apiKey = null;
   let name = "Auto Translate RDG";
-  let description = "Traduz legendas automaticamente para PT-BR";
+  let description = "Traduz legendas automaticamente (requer configuração)";
   
   if (configId) {
     const config = await loadConfig(configId);
     if (config) {
-      apiKey = config.apiKey;
-      name = `Auto Translate RDG (${config.targetLang.toUpperCase()})`;
-      description = `Traduz legendas automaticamente para ${config.targetLang.toUpperCase()}`;
+      const langName = {
+        pt: "Português",
+        en: "English",
+        es: "Español",
+        fr: "Français",
+        de: "Deutsch",
+        it: "Italiano",
+        ja: "日本語",
+        ko: "한국어",
+        zh: "中文",
+        ru: "Русский",
+      }[config.targetLang] || config.targetLang.toUpperCase();
+      
+      name = `Auto Translate → ${langName}`;
+      description = `Tradução automática de legendas para ${langName}`;
     }
   }
   
   const manifest = {
     id: "org.rdg.autotranslate",
-    version: "1.0.0",
+    version: "1.0.1",
     name: name,
     description: description,
     resources: ["subtitles"],
@@ -335,6 +331,7 @@ app.get("/manifest.json", async (req, res) => {
     idPrefixes: ["tt"],
     catalogs: [],
     contactEmail: "support@rdg.addon",
+    logo: "https://i.imgur.com/placeholder.png",
   };
   
   res.json(manifest);
@@ -348,16 +345,24 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
   const { type, imdbId } = req.params;
   const { config: configId } = req.query;
   
-  let apiKey = null;
-  let targetLang = "pt";
+  console.log(`[${new Date().toISOString()}] 🔹 Requisição: ${type} | ${imdbId} | config: ${configId}`);
   
-  if (configId) {
-    const config = await loadConfig(configId);
-    if (config) {
-      apiKey = config.apiKey;
-      targetLang = config.targetLang;
-    }
+  if (!configId) {
+    return res.status(400).json({ 
+      error: "Configuração não fornecida. Acesse /config para configurar sua API key." 
+    });
   }
+  
+  const config = await loadConfig(configId);
+  
+  if (!config) {
+    return res.status(400).json({ 
+      error: "Configuração inválida ou expirada. Por favor, reconfigure em /config" 
+    });
+  }
+  
+  const apiKey = config.apiKey;
+  const targetLang = config.targetLang;
   
   const idParts = imdbId.split(":");
   const cleanId = idParts[0].replace("tt", "");
@@ -370,13 +375,11 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
   
   const cachePath = path.join(subtitlesDir, `${cacheKey}.srt`);
   
-  console.log(`[${new Date().toISOString()}] 🔹 ${type} | ${imdbId}`);
-  
   try {
     if (!(await fs.pathExists(cachePath))) {
-      console.log(`🕐 Buscando e traduzindo...`);
+      console.log(`🕐 Cache não encontrado. Buscando e traduzindo...`);
       
-      const original = await getSubtitle(
+      const original = await getSubtitleFromOpenSubtitles(
         `tt${cleanId}`,
         apiKey,
         type,
@@ -387,15 +390,17 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
       const translated = await translateSubtitle(original, targetLang);
       await fs.writeFile(cachePath, translated, "utf-8");
       
-      console.log(`💾 Legenda em cache`);
+      console.log(`💾 Legenda traduzida salva em cache: ${cacheKey}.srt`);
     } else {
-      console.log(`✅ Cache encontrado`);
+      console.log(`✅ Cache encontrado: ${cacheKey}.srt`);
     }
+    
+    const protocol = req.headers["x-forwarded-proto"] === "https" || process.env.NODE_ENV === "production" ? "https" : req.protocol;
     
     const body = [
       {
         id: `${imdbId}:${targetLang}`,
-        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cacheKey}.srt`,
+        url: `${protocol}://${req.get("host")}/subtitles/file/${cacheKey}.srt`,
         lang: targetLang,
         name: `Auto-Translated (${targetLang.toUpperCase()})`,
       },
@@ -404,7 +409,7 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
     res.json({ subtitles: body });
     
   } catch (err) {
-    console.error("❌ Erro:", err.message);
+    console.error(`❌ Erro ao processar legenda: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
@@ -418,9 +423,10 @@ app.get("/subtitles/file/:file", async (req, res) => {
   
   if (await fs.pathExists(file)) {
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Disposition", `inline; filename="${req.params.file}"`);
     fs.createReadStream(file).pipe(res);
   } else {
-    res.status(404).send("Arquivo não encontrado");
+    res.status(404).send("Arquivo de legenda não encontrado");
   }
 });
 
@@ -431,6 +437,7 @@ app.get("/subtitles/file/:file", async (req, res) => {
 app.get("/health", (req, res) => {
   res.json({ 
     status: "ok", 
+    uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
 });
@@ -446,41 +453,85 @@ app.get("/", (req, res) => {
     <head>
       <title>Auto Translate RDG</title>
       <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
-          font-family: Arial, sans-serif; 
-          max-width: 800px; 
-          margin: 50px auto; 
-          padding: 20px;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           min-height: 100vh;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          padding: 20px;
         }
         .container {
           background: white;
-          padding: 40px;
-          border-radius: 12px;
+          padding: 50px;
+          border-radius: 16px;
           box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+          text-align: center;
+          max-width: 600px;
         }
-        h1 { color: #333; margin-bottom: 20px; }
+        h1 { 
+          color: #333; 
+          font-size: 32px;
+          margin-bottom: 15px; 
+        }
+        p { 
+          color: #666; 
+          font-size: 16px;
+          margin-bottom: 30px;
+          line-height: 1.6;
+        }
         .btn {
           display: inline-block;
           background: #667eea;
           color: white;
-          padding: 12px 24px;
+          padding: 15px 35px;
           border-radius: 8px;
           text-decoration: none;
           font-weight: 600;
-          margin-top: 20px;
+          font-size: 16px;
+          transition: all 0.3s;
         }
         .btn:hover {
           background: #5568d3;
+          transform: translateY(-2px);
+          box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        .feature {
+          background: #f8f9fa;
+          padding: 15px;
+          border-radius: 8px;
+          margin: 20px 0;
+          text-align: left;
+        }
+        .feature h3 {
+          color: #667eea;
+          font-size: 14px;
+          margin-bottom: 8px;
+        }
+        .feature p {
+          font-size: 13px;
+          margin: 0;
         }
       </style>
     </head>
     <body>
       <div class="container">
         <h1>🎬 Auto Translate RDG</h1>
-        <p>Addon para tradução automática de legendas no Stremio</p>
-        <a href="/config" class="btn">Configurar e Instalar</a>
+        <p>Addon <strong>GRATUITO</strong> para tradução automática de legendas no Stremio</p>
+        
+        <div class="feature">
+          <h3>✅ Como funciona</h3>
+          <p>Configure uma vez com sua API key do OpenSubtitles (gratuita) e traduza legendas automaticamente para seu idioma preferido</p>
+        </div>
+        
+        <div class="feature">
+          <h3>🌍 Suporta 15+ idiomas</h3>
+          <p>Português, Inglês, Espanhol, Francês, Alemão, Italiano, Japonês, Coreano, Chinês, Russo e mais!</p>
+        </div>
+        
+        <a href="/config" class="btn">⚙️ Configurar e Instalar</a>
       </div>
     </body>
     </html>
@@ -494,4 +545,5 @@ app.get("/", (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
   console.log(`📝 Configuração: http://localhost:${PORT}/config`);
+  console.log(`💚 Health Check: http://localhost:${PORT}/health`);
 });
