@@ -272,6 +272,21 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
     }
+
+    .error-message {
+      color: #d32f2f;
+      font-size: 13px;
+      margin-top: 10px;
+      display: none;
+      background: #ffebee;
+      padding: 10px;
+      border-radius: 4px;
+      border-left: 4px solid #d32f2f;
+    }
+
+    .error-message.show {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -291,7 +306,7 @@
         <input 
           type="text" 
           id="apiKey" 
-          placeholder="data-i18n=apiKeyPlaceholder" 
+          placeholder="Cole sua API key aqui..." 
           required
         >
         <div class="help-link">
@@ -305,7 +320,7 @@
       <div class="form-group">
         <label for="language" data-i18n="idiomaLabel"></label>
         <select id="language" required>
-          <option value="">-- <span data-i18n="idiomaPlaceholder"></span> --</option>
+          <option value="">-- Escolha um idioma --</option>
         </select>
       </div>
 
@@ -317,6 +332,8 @@
           data-i18n="botaoGerar"
         ></button>
       </div>
+
+      <div class="error-message" id="errorMessage"></div>
 
       <div class="result-box" id="resultBox">
         <div class="result-label" data-i18n="botaoGerar"></div>
@@ -347,11 +364,14 @@
   </div>
 
   <script>
-    // Traduções
+    // =====================================================
+    // TRADUÇÕES MULTILÍNGUES
+    // =====================================================
+    
     const translations = {
       pt: {
-        titulo: "Auto Translate RDG - Configuração",
-        descricao: "Configure sua addon de tradução de legendas para Stremio",
+        titulo: "Auto Translate RDG",
+        descricao: "Configure sua addon GRÁTIS de tradução de legendas para Stremio",
         apiKeyLabel: "Chave API do OpenSubtitles:",
         apiKeyPlaceholder: "Cole sua API key aqui...",
         crieApiAqui: "Crie sua API aqui",
@@ -438,6 +458,21 @@
         sucesso: "✅ リンクがコピーされました！Stremioにインストールできます",
         aviso: "⚠️ APIキーはブラウザに保存されます（localStorage）",
         rodape: "© 2025 Auto Translate RDG - Stremioアドオン"
+      },
+      it: {
+        titulo: "Auto Translate RDG - Configurazione",
+        descricao: "Configura il tuo addon di traduzione sottotitoli per Stremio",
+        apiKeyLabel: "Chiave API OpenSubtitles:",
+        apiKeyPlaceholder: "Incolla la tua chiave API qui...",
+        crieApiAqui: "Crea la tua API qui",
+        idiomaLabel: "Lingua di traduzione di destinazione:",
+        idiomaPlaceholder: "Scegli una lingua...",
+        botaoGerar: "Genera link di installazione",
+        botaoCopiar: "Copia link",
+        botaoInstalar: "Installa su Stremio",
+        sucesso: "✅ Link copiato! Puoi installare su Stremio",
+        aviso: "⚠️ La tua chiave API verrà archiviata nel tuo browser (localStorage)",
+        rodape: "© 2025 Auto Translate RDG - Addon Stremio"
       }
     };
 
@@ -447,10 +482,14 @@
       es: "Español",
       fr: "Français",
       de: "Deutsch",
-      ja: "日本語"
+      ja: "日本語",
+      it: "Italiano"
     };
 
-    // Elementos do DOM
+    // =====================================================
+    // ELEMENTOS DO DOM
+    // =====================================================
+    
     const apiKeyInput = document.getElementById("apiKey");
     const languageSelect = document.getElementById("language");
     const languageSelector = document.getElementById("languageSelector");
@@ -460,15 +499,18 @@
     const resultBox = document.getElementById("resultBox");
     const manifestLink = document.getElementById("manifestLink");
     const successMessage = document.getElementById("successMessage");
+    const errorMessage = document.getElementById("errorMessage");
 
-    // Detectar idioma do navegador
+    // =====================================================
+    // FUNÇÕES UTILITÁRIAS
+    // =====================================================
+    
     function detectBrowserLanguage() {
       const lang = navigator.language || navigator.userLanguage;
       const langCode = lang.split("-")[0];
       return langCode in translations ? langCode : "en";
     }
 
-    // Carregar idiomas de tradução
     async function loadLanguages() {
       try {
         const response = await fetch("/api/languages");
@@ -482,10 +524,10 @@
         }
       } catch (error) {
         console.error("Erro ao carregar idiomas:", error);
+        showError("Erro ao carregar idiomas disponíveis");
       }
     }
 
-    // Carregar seletor de idiomas da interface
     function loadLanguageSelector() {
       for (const [code, name] of Object.entries(languageNames)) {
         const option = document.createElement("option");
@@ -495,39 +537,54 @@
       }
     }
 
-    // Atualizar textos da página
     function updateUI(lang) {
       const t = translations[lang];
+      
       document.querySelectorAll("[data-i18n]").forEach(el => {
         const key = el.getAttribute("data-i18n");
         if (t[key]) {
-          if (el.tagName === "INPUT" || el.tagName === "BUTTON") {
-            el.placeholder = t[key];
-            el.textContent = t[key];
-          } else {
-            el.textContent = t[key];
-          }
+          el.textContent = t[key];
         }
       });
 
-      // Atualizar placeholders
-      document.querySelector('input[data-i18n="apiKeyPlaceholder"]').placeholder = t.apiKeyPlaceholder;
-      document.querySelector('select#language').title = t.idiomaPlaceholder;
+      document.getElementById("apiKey").placeholder = t.apiKeyPlaceholder;
     }
 
-    // Gerar link de instalação
+    function showError(message) {
+      errorMessage.textContent = "❌ " + message;
+      errorMessage.classList.add("show");
+      setTimeout(() => {
+        errorMessage.classList.remove("show");
+      }, 5000);
+    }
+
+    function hideError() {
+      errorMessage.classList.remove("show");
+    }
+
+    // =====================================================
+    // EVENT LISTENERS
+    // =====================================================
+    
     btnGenerate.addEventListener("click", async (e) => {
       e.preventDefault();
+      hideError();
 
       const apiKey = apiKeyInput.value.trim();
       const language = languageSelect.value;
 
-      if (!apiKey || !language) {
-        alert("Por favor, preencha todos os campos");
+      if (!apiKey) {
+        showError("Por favor, insira sua API key do OpenSubtitles");
+        return;
+      }
+
+      if (!language) {
+        showError("Por favor, escolha um idioma de tradução");
         return;
       }
 
       btnGenerate.disabled = true;
+      const originalText = btnGenerate.textContent;
       btnGenerate.innerHTML = `<span class="loading"></span>`;
 
       try {
@@ -539,47 +596,59 @@
 
         const data = await response.json();
 
+        if (!response.ok) {
+          showError(data.error || "Erro ao gerar link");
+          btnGenerate.disabled = false;
+          btnGenerate.textContent = originalText;
+          return;
+        }
+
         if (data.success) {
-          manifestLink.textContent = data.manifestUrl;
+          const manifestUrl = data.manifestUrl.replace(/^http:/, "https:");
+          
+          manifestLink.textContent = manifestUrl;
           resultBox.classList.add("show");
 
-          // Salvar no localStorage
           localStorage.setItem("addonConfig", JSON.stringify({ apiKey, targetLang: language }));
 
           btnGenerate.disabled = false;
-          btnGenerate.innerHTML = document.querySelector("[data-i18n='botaoGerar']").textContent;
+          btnGenerate.textContent = originalText;
         }
       } catch (error) {
-        alert("Erro ao gerar link: " + error.message);
+        console.error("Erro:", error);
+        showError("Erro ao gerar link: " + error.message);
         btnGenerate.disabled = false;
-        btnGenerate.innerHTML = document.querySelector("[data-i18n='botaoGerar']").textContent;
+        btnGenerate.textContent = originalText;
       }
     });
 
-    // Copiar link
-    btnCopy.addEventListener("click", () => {
+    btnCopy.addEventListener("click", async () => {
       const text = manifestLink.textContent;
-      navigator.clipboard.writeText(text).then(() => {
+      try {
+        await navigator.clipboard.writeText(text);
         successMessage.classList.add("show");
         setTimeout(() => successMessage.classList.remove("show"), 3000);
-      });
+      } catch (error) {
+        showError("Erro ao copiar link: " + error.message);
+      }
     });
 
-    // Instalar no Stremio
     btnInstall.addEventListener("click", () => {
       const url = manifestLink.textContent;
       const stremioUrl = `stremio://addon/${encodeURIComponent(url)}`;
       window.location.href = stremioUrl;
     });
 
-    // Trocar idioma
     languageSelector.addEventListener("change", (e) => {
       const lang = e.target.value;
       updateUI(lang);
       localStorage.setItem("uiLanguage", lang);
     });
 
-    // Inicializar
+    // =====================================================
+    // INICIALIZAÇÃO
+    // =====================================================
+    
     function init() {
       loadLanguageSelector();
       loadLanguages();
@@ -588,12 +657,15 @@
       languageSelector.value = savedLang;
       updateUI(savedLang);
 
-      // Carregar configuração salva se existir
       const savedConfig = localStorage.getItem("addonConfig");
       if (savedConfig) {
-        const config = JSON.parse(savedConfig);
-        apiKeyInput.value = config.apiKey;
-        languageSelect.value = config.targetLang;
+        try {
+          const config = JSON.parse(savedConfig);
+          apiKeyInput.value = config.apiKey;
+          languageSelect.value = config.targetLang;
+        } catch (error) {
+          console.error("Erro ao carregar configuração salva:", error);
+        }
       }
     }
 
