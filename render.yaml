@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: stremio-autotranslate-rdg
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPENSUBTITLES_API_KEY
+        sync: false
+    autoDeploy: true
