@@ -14,6 +14,16 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// =======================
+// Forçar HTTPS em produção
+// =======================
+app.use((req, res, next) => {
+  if (req.headers["x-forwarded-proto"] !== "https" && process.env.NODE_ENV === "production") {
+    return res.redirect(`https://${req.headers.host}${req.url}`);
+  }
+  next();
+});
+
 app.use(cors());
 app.use(morgan("dev"));
 app.use(express.json());
@@ -28,6 +38,13 @@ await fs.ensureDir(configDir);
 await fs.ensureDir(publicDir);
 
 // =======================
+// Redirecionar /config para /config.html
+// =======================
+app.get("/config", (req, res) => {
+  res.redirect("/config.html");
+});
+
+// =======================
 // Funções de Configuração
 // =======================
 
@@ -40,7 +57,7 @@ async function saveConfig(apiKey, targetLang) {
     apiKey,
     targetLang,
     createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 dias
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
   });
   
   return id;
@@ -55,7 +72,6 @@ async function loadConfig(id) {
   
   const config = await fs.readJson(configPath);
   
-  // Verifica se expirou
   if (new Date(config.expiresAt) < new Date()) {
     await fs.remove(configPath);
     return null;
@@ -65,7 +81,7 @@ async function loadConfig(id) {
 }
 
 // =======================
-// API Endpoints para Configuração
+// API Endpoints
 // =======================
 
 app.post("/api/config", async (req, res) => {
@@ -78,10 +94,14 @@ app.post("/api/config", async (req, res) => {
     
     const id = await saveConfig(apiKey, targetLang);
     
+    // Forçar HTTPS
+    const protocol = req.headers["x-forwarded-proto"] === "https" || process.env.NODE_ENV === "production" ? "https" : req.protocol;
+    const manifestUrl = `${protocol}://${req.get("host")}/manifest.json?config=${id}`;
+    
     res.json({
       success: true,
       configId: id,
-      manifestUrl: `${req.protocol}://${req.get("host")}/manifest.json?config=${id}`,
+      manifestUrl: manifestUrl,
     });
   } catch (err) {
     console.error("❌ Erro ao salvar config:", err);
@@ -112,7 +132,7 @@ app.get("/api/languages", (req, res) => {
 });
 
 // =======================
-// Função para obter legenda (com fallback)
+// Funções de Legendas
 // =======================
 
 async function getSubtitleNewAPI(imdbId, apiKey, type = "movie", season = null, episode = null) {
@@ -243,10 +263,6 @@ async function getSubtitle(imdbId, apiKey = null, type = "movie", season = null,
   }
 }
 
-// =======================
-// Traduz legenda
-// =======================
-
 async function translateSubtitle(content, targetLang = "pt") {
   const lines = content.split("\n");
   const blocks = [];
@@ -321,11 +337,6 @@ app.get("/manifest.json", async (req, res) => {
     contactEmail: "support@rdg.addon",
   };
   
-  // Armazena a API key em sessão para uso posterior
-  if (configId) {
-    res.set("X-Config-Id", configId);
-  }
-  
   res.json(manifest);
 });
 
@@ -381,8 +392,6 @@ app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
       console.log(`✅ Cache encontrado`);
     }
     
-    const manifestUrl = configId ? `?config=${configId}` : "";
-    
     const body = [
       {
         id: `${imdbId}:${targetLang}`,
@@ -427,10 +436,62 @@ app.get("/health", (req, res) => {
 });
 
 // =======================
+// Página Inicial
+// =======================
+
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Auto Translate RDG</title>
+      <style>
+        body { 
+          font-family: Arial, sans-serif; 
+          max-width: 800px; 
+          margin: 50px auto; 
+          padding: 20px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+        }
+        .container {
+          background: white;
+          padding: 40px;
+          border-radius: 12px;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #333; margin-bottom: 20px; }
+        .btn {
+          display: inline-block;
+          background: #667eea;
+          color: white;
+          padding: 12px 24px;
+          border-radius: 8px;
+          text-decoration: none;
+          font-weight: 600;
+          margin-top: 20px;
+        }
+        .btn:hover {
+          background: #5568d3;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🎬 Auto Translate RDG</h1>
+        <p>Addon para tradução automática de legendas no Stremio</p>
+        <a href="/config" class="btn">Configurar e Instalar</a>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// =======================
 // Inicializa Servidor
 // =======================
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
-  console.log(`📝 Configuração: ${new URL("http://localhost:" + PORT).href}config`);
+  console.log(`📝 Configuração: http://localhost:${PORT}/config`);
 });
