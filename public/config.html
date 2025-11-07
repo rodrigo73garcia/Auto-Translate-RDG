@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Auto Translate RDG - Setup</title>
+  <title>Auto Translate RDG - Configuração</title>
   <style>
     * {
       margin: 0;
@@ -25,7 +25,7 @@
       background: white;
       border-radius: 12px;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      max-width: 500px;
+      max-width: 550px;
       width: 100%;
       padding: 40px;
     }
@@ -44,6 +44,7 @@
     .subtitle {
       color: #666;
       font-size: 14px;
+      line-height: 1.5;
     }
 
     .form-group {
@@ -95,28 +96,22 @@
     }
 
     .warning {
-      background: #fff3cd;
-      border-left: 4px solid #ffc107;
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
       padding: 12px;
       border-radius: 4px;
       margin-bottom: 25px;
       font-size: 13px;
-      color: #856404;
+      color: #1565c0;
       line-height: 1.5;
     }
 
-    .buttons {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 15px;
-    }
-
     button {
-      flex: 1;
-      padding: 12px 16px;
+      width: 100%;
+      padding: 14px 16px;
       border: none;
       border-radius: 8px;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.3s;
@@ -126,6 +121,7 @@
     .btn-primary {
       background: #667eea;
       color: white;
+      margin-bottom: 15px;
     }
 
     .btn-primary:hover:not(:disabled) {
@@ -149,16 +145,9 @@
       transform: translateY(-2px);
     }
 
-    .btn-secondary:disabled {
-      background: #f5f5f5;
-      color: #999;
-      cursor: not-allowed;
-    }
-
     .btn-install {
       background: #4caf50;
       color: white;
-      width: 100%;
     }
 
     .btn-install:hover:not(:disabled) {
@@ -170,7 +159,7 @@
     .result-box {
       background: #f5f5f5;
       border-radius: 8px;
-      padding: 15px;
+      padding: 20px;
       margin-top: 20px;
       display: none;
     }
@@ -193,8 +182,8 @@
 
     .result-label {
       color: #666;
-      font-size: 12px;
-      margin-bottom: 8px;
+      font-size: 13px;
+      margin-bottom: 10px;
       font-weight: 600;
     }
 
@@ -203,19 +192,34 @@
       border: 1px solid #ddd;
       border-radius: 6px;
       padding: 12px;
-      font-size: 12px;
+      font-size: 11px;
       word-break: break-all;
       font-family: "Courier New", monospace;
       color: #333;
-      margin-bottom: 12px;
-      line-height: 1.4;
+      margin-bottom: 15px;
+      line-height: 1.5;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .button-group button {
+      width: auto;
+      flex: 1;
     }
 
     .success-message {
       color: #4caf50;
       font-size: 13px;
       margin-top: 10px;
+      padding: 10px;
+      background: #e8f5e9;
+      border-radius: 4px;
       display: none;
+      text-align: center;
     }
 
     .success-message.show {
@@ -224,17 +228,23 @@
     }
 
     @keyframes fadeIn {
-      from {
-        opacity: 0;
-      }
-      to {
-        opacity: 1;
-      }
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
-    .icon {
-      display: inline-block;
-      margin-right: 4px;
+    .error-message {
+      color: #d32f2f;
+      font-size: 13px;
+      margin-top: 10px;
+      padding: 10px;
+      background: #ffebee;
+      border-radius: 4px;
+      border-left: 4px solid #d32f2f;
+      display: none;
+    }
+
+    .error-message.show {
+      display: block;
     }
 
     footer {
@@ -246,46 +256,42 @@
       padding-top: 20px;
     }
 
+    .loading {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      background: white;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+      margin: 0 2px;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .info-box {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 12px;
+      border-radius: 4px;
+      margin-top: 20px;
+      font-size: 12px;
+      color: #856404;
+    }
+
     .language-selector {
       position: absolute;
       top: 20px;
       right: 20px;
-      background: white;
+      background: rgba(255,255,255,0.9);
       border: 1px solid #ddd;
       border-radius: 6px;
       padding: 6px 10px;
       font-size: 12px;
       cursor: pointer;
-    }
-
-    .loading {
-      display: inline-block;
-      width: 4px;
-      height: 4px;
-      background: #667eea;
-      border-radius: 50%;
-      animation: pulse 1.5s infinite;
-      margin-left: 4px;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-
-    .error-message {
-      color: #d32f2f;
-      font-size: 13px;
-      margin-top: 10px;
-      display: none;
-      background: #ffebee;
-      padding: 10px;
-      border-radius: 4px;
-      border-left: 4px solid #d32f2f;
-    }
-
-    .error-message.show {
-      display: block;
+      backdrop-filter: blur(10px);
     }
   </style>
 </head>
@@ -294,15 +300,17 @@
 
   <div class="container">
     <header>
-      <h1>🎬 <span data-i18n="titulo"></span></h1>
-      <p class="subtitle" data-i18n="descricao"></p>
+      <h1>🎬 <span data-i18n="titulo">Auto Translate RDG</span></h1>
+      <p class="subtitle" data-i18n="descricao">Configure sua addon GRÁTIS de tradução de legendas para Stremio</p>
     </header>
 
-    <div class="warning" data-i18n="aviso"></div>
+    <div class="warning" data-i18n="aviso">
+      ℹ️ Você precisa de uma conta gratuita no OpenSubtitles para usar este addon. A API key é gratuita e permite 200 downloads por dia.
+    </div>
 
     <form id="configForm">
       <div class="form-group">
-        <label for="apiKey" data-i18n="apiKeyLabel"></label>
+        <label for="apiKey" data-i18n="apiKeyLabel">Chave API do OpenSubtitles:</label>
         <input 
           type="text" 
           id="apiKey" 
@@ -311,61 +319,71 @@
         >
         <div class="help-link">
           <a href="https://www.opensubtitles.com/en/consumers" target="_blank">
-            <span class="icon">🔗</span>
-            <span data-i18n="crieApiAqui"></span>
+            <span>🔗</span>
+            <span data-i18n="crieApiAqui">Crie sua API gratuita aqui</span>
           </a>
         </div>
       </div>
 
       <div class="form-group">
-        <label for="language" data-i18n="idiomaLabel"></label>
+        <label for="language" data-i18n="idiomaLabel">Idioma de Tradução:</label>
         <select id="language" required>
           <option value="">-- Escolha um idioma --</option>
         </select>
       </div>
 
-      <div class="buttons">
-        <button 
-          type="button" 
-          class="btn-primary" 
-          id="btnGenerate" 
-          data-i18n="botaoGerar"
-        ></button>
-      </div>
+      <button 
+        type="button" 
+        class="btn-primary" 
+        id="btnGenerate" 
+        data-i18n="botaoGerar"
+      >
+        Gerar Link de Instalação
+      </button>
 
       <div class="error-message" id="errorMessage"></div>
 
       <div class="result-box" id="resultBox">
-        <div class="result-label" data-i18n="botaoGerar"></div>
+        <div class="result-label" data-i18n="linkGerado">✅ Link de instalação gerado:</div>
         <div class="manifest-link" id="manifestLink"></div>
         
-        <div style="display: flex; gap: 10px;">
+        <div class="button-group">
           <button 
             type="button" 
             class="btn-secondary" 
             id="btnCopy" 
             data-i18n="botaoCopiar"
-            style="flex: 1;"
-          ></button>
+          >
+            📋 Copiar Link
+          </button>
           <button 
             type="button" 
             class="btn-install" 
             id="btnInstall" 
             data-i18n="botaoInstalar"
-            style="flex: 1;"
-          ></button>
+          >
+            🚀 Instalar no Stremio
+          </button>
         </div>
 
-        <div class="success-message" id="successMessage" data-i18n="sucesso"></div>
+        <div class="success-message" id="successMessage" data-i18n="sucesso">
+          ✅ Link copiado com sucesso!
+        </div>
       </div>
     </form>
 
-    <footer data-i18n="rodape"></footer>
+    <div class="info-box">
+      <strong>💡 Dica:</strong> O link de instalação é válido por 90 dias. Você pode reutilizá-lo em vários dispositivos.
+    </div>
+
+    <footer data-i18n="rodape">
+      © 2025 Auto Translate RDG - Addon GRATUITO para Stremio
+    </footer>
   </div>
 
   <script>
     // =====================================================
-    // TRADUÇÕES MULTILÍNGUES
+    // TRADUÇÕES
     // =====================================================
     
     const translations = {
@@ -374,116 +392,55 @@
         descricao: "Configure sua addon GRÁTIS de tradução de legendas para Stremio",
         apiKeyLabel: "Chave API do OpenSubtitles:",
         apiKeyPlaceholder: "Cole sua API key aqui...",
-        crieApiAqui: "Crie sua API aqui",
-        idiomaLabel: "Idioma Alvo de Tradução:",
+        crieApiAqui: "Crie sua API gratuita aqui",
+        idiomaLabel: "Idioma de Tradução:",
         idiomaPlaceholder: "Escolha um idioma...",
         botaoGerar: "Gerar Link de Instalação",
-        botaoCopiar: "Copiar Link",
-        botaoInstalar: "Instalar no Stremio",
-        sucesso: "✅ Link copiado! Você pode instalar no Stremio",
-        aviso: "⚠️ Sua API key será armazenada em seu navegador (localStorage)",
-        rodape: "© 2025 Auto Translate RDG - Addon para Stremio"
+        botaoCopiar: "📋 Copiar Link",
+        botaoInstalar: "🚀 Instalar no Stremio",
+        linkGerado: "✅ Link de instalação gerado:",
+        sucesso: "✅ Link copiado com sucesso!",
+        aviso: "ℹ️ Você precisa de uma conta gratuita no OpenSubtitles para usar este addon. A API key é gratuita e permite 200 downloads por dia.",
+        rodape: "© 2025 Auto Translate RDG - Addon GRATUITO para Stremio"
       },
       en: {
-        titulo: "Auto Translate RDG - Configuration",
-        descricao: "Configure your subtitle translation addon for Stremio",
+        titulo: "Auto Translate RDG",
+        descricao: "Configure your FREE subtitle translation addon for Stremio",
         apiKeyLabel: "OpenSubtitles API Key:",
         apiKeyPlaceholder: "Paste your API key here...",
-        crieApiAqui: "Create your API here",
-        idiomaLabel: "Target Translation Language:",
+        crieApiAqui: "Create your free API here",
+        idiomaLabel: "Translation Language:",
         idiomaPlaceholder: "Choose a language...",
         botaoGerar: "Generate Installation Link",
-        botaoCopiar: "Copy Link",
-        botaoInstalar: "Install on Stremio",
-        sucesso: "✅ Link copied! You can install on Stremio",
-        aviso: "⚠️ Your API key will be stored in your browser (localStorage)",
-        rodape: "© 2025 Auto Translate RDG - Stremio Addon"
+        botaoCopiar: "📋 Copy Link",
+        botaoInstalar: "🚀 Install on Stremio",
+        linkGerado: "✅ Installation link generated:",
+        sucesso: "✅ Link copied successfully!",
+        aviso: "ℹ️ You need a free OpenSubtitles account to use this addon. The API key is free and allows 200 downloads per day.",
+        rodape: "© 2025 Auto Translate RDG - FREE Stremio Addon"
       },
       es: {
-        titulo: "Auto Translate RDG - Configuración",
-        descricao: "Configure su complemento de traducción de subtítulos para Stremio",
+        titulo: "Auto Translate RDG",
+        descricao: "Configure su complemento GRATUITO de traducción de subtítulos para Stremio",
         apiKeyLabel: "Clave API de OpenSubtitles:",
         apiKeyPlaceholder: "Pegue su clave API aquí...",
-        crieApiAqui: "Cree su API aquí",
-        idiomaLabel: "Idioma Objetivo de Traducción:",
+        crieApiAqui: "Cree su API gratuita aquí",
+        idiomaLabel: "Idioma de Traducción:",
         idiomaPlaceholder: "Elija un idioma...",
         botaoGerar: "Generar Enlace de Instalación",
-        botaoCopiar: "Copiar Enlace",
-        botaoInstalar: "Instalar en Stremio",
-        sucesso: "✅ ¡Enlace copiado! Puede instalar en Stremio",
-        aviso: "⚠️ Su clave API se almacenará en su navegador (localStorage)",
-        rodape: "© 2025 Auto Translate RDG - Complemento de Stremio"
-      },
-      fr: {
-        titulo: "Auto Translate RDG - Configuration",
-        descricao: "Configurez votre module de traduction de sous-titres pour Stremio",
-        apiKeyLabel: "Clé API OpenSubtitles:",
-        apiKeyPlaceholder: "Collez votre clé API ici...",
-        crieApiAqui: "Créez votre API ici",
-        idiomaLabel: "Langue cible de traduction:",
-        idiomaPlaceholder: "Choisissez une langue...",
-        botaoGerar: "Générer un lien d'installation",
-        botaoCopiar: "Copier le lien",
-        botaoInstalar: "Installer sur Stremio",
-        sucesso: "✅ Lien copié! Vous pouvez installer sur Stremio",
-        aviso: "⚠️ Votre clé API sera stockée dans votre navigateur (localStorage)",
-        rodape: "© 2025 Auto Translate RDG - Module Stremio"
-      },
-      de: {
-        titulo: "Auto Translate RDG - Konfiguration",
-        descricao: "Konfigurieren Sie Ihr Untertitel-Übersetzungs-Add-on für Stremio",
-        apiKeyLabel: "OpenSubtitles API-Schlüssel:",
-        apiKeyPlaceholder: "Fügen Sie Ihren API-Schlüssel ein...",
-        crieApiAqui: "Erstelle hier deine API",
-        idiomaLabel: "Zielsprache für die Übersetzung:",
-        idiomaPlaceholder: "Wählen Sie eine Sprache...",
-        botaoGerar: "Installationslink generieren",
-        botaoCopiar: "Link kopieren",
-        botaoInstalar: "In Stremio installieren",
-        sucesso: "✅ Link kopiert! Sie können in Stremio installieren",
-        aviso: "⚠️ Ihr API-Schlüssel wird in Ihrem Browser gespeichert (localStorage)",
-        rodape: "© 2025 Auto Translate RDG - Stremio Add-on"
-      },
-      ja: {
-        titulo: "Auto Translate RDG - 設定",
-        descricao: "Stremio用の字幕翻訳アドオンを設定します",
-        apiKeyLabel: "OpenSubtitles APIキー:",
-        apiKeyPlaceholder: "APIキーをここに貼り付けます...",
-        crieApiAqui: "ここでAPIを作成",
-        idiomaLabel: "ターゲット翻訳言語:",
-        idiomaPlaceholder: "言語を選択...",
-        botaoGerar: "インストールリンクを生成",
-        botaoCopiar: "リンクをコピー",
-        botaoInstalar: "Stremioにインストール",
-        sucesso: "✅ リンクがコピーされました！Stremioにインストールできます",
-        aviso: "⚠️ APIキーはブラウザに保存されます（localStorage）",
-        rodape: "© 2025 Auto Translate RDG - Stremioアドオン"
-      },
-      it: {
-        titulo: "Auto Translate RDG - Configurazione",
-        descricao: "Configura il tuo addon di traduzione sottotitoli per Stremio",
-        apiKeyLabel: "Chiave API OpenSubtitles:",
-        apiKeyPlaceholder: "Incolla la tua chiave API qui...",
-        crieApiAqui: "Crea la tua API qui",
-        idiomaLabel: "Lingua di traduzione di destinazione:",
-        idiomaPlaceholder: "Scegli una lingua...",
-        botaoGerar: "Genera link di installazione",
-        botaoCopiar: "Copia link",
-        botaoInstalar: "Installa su Stremio",
-        sucesso: "✅ Link copiato! Puoi installare su Stremio",
-        aviso: "⚠️ La tua chiave API verrà archiviata nel tuo browser (localStorage)",
-        rodape: "© 2025 Auto Translate RDG - Addon Stremio"
+        botaoCopiar: "📋 Copiar Enlace",
+        botaoInstalar: "🚀 Instalar en Stremio",
+        linkGerado: "✅ Enlace de instalación generado:",
+        sucesso: "✅ ¡Enlace copiado con éxito!",
+        aviso: "ℹ️ Necesita una cuenta gratuita de OpenSubtitles para usar este complemento. La clave API es gratuita y permite 200 descargas por día.",
+        rodape: "© 2025 Auto Translate RDG - Complemento GRATUITO de Stremio"
       }
     };
 
     const languageNames = {
       pt: "Português",
       en: "English",
-      es: "Español",
-      fr: "Français",
-      de: "Deutsch",
-      ja: "日本語",
-      it: "Italiano"
+      es: "Español"
     };
 
     // =====================================================
@@ -502,7 +459,7 @@
     const errorMessage = document.getElementById("errorMessage");
 
     // =====================================================
-    // FUNÇÕES UTILITÁRIAS
+    // FUNÇÕES
     // =====================================================
     
     function detectBrowserLanguage() {
@@ -524,7 +481,6 @@
         }
       } catch (error) {
         console.error("Erro ao carregar idiomas:", error);
-        showError("Erro ao carregar idiomas disponíveis");
       }
     }
 
@@ -547,15 +503,13 @@
         }
       });
 
-      document.getElementById("apiKey").placeholder = t.apiKeyPlaceholder;
+      apiKeyInput.placeholder = t.apiKeyPlaceholder;
     }
 
     function showError(message) {
       errorMessage.textContent = "❌ " + message;
       errorMessage.classList.add("show");
-      setTimeout(() => {
-        errorMessage.classList.remove("show");
-      }, 5000);
+      setTimeout(() => errorMessage.classList.remove("show"), 5000);
     }
 
     function hideError() {
@@ -584,8 +538,7 @@
       }
 
       btnGenerate.disabled = true;
-      const originalText = btnGenerate.textContent;
-      btnGenerate.innerHTML = `<span class="loading"></span>`;
+      btnGenerate.innerHTML = '<span class="loading"></span><span class="loading"></span><span class="loading"></span>';
 
       try {
         const response = await fetch("/api/config", {
@@ -599,7 +552,7 @@
         if (!response.ok) {
           showError(data.error || "Erro ao gerar link");
           btnGenerate.disabled = false;
-          btnGenerate.textContent = originalText;
+          btnGenerate.textContent = "Gerar Link de Instalação";
           return;
         }
 
@@ -612,13 +565,13 @@
           localStorage.setItem("addonConfig", JSON.stringify({ apiKey, targetLang: language }));
 
           btnGenerate.disabled = false;
-          btnGenerate.textContent = originalText;
+          btnGenerate.textContent = "Gerar Link de Instalação";
         }
       } catch (error) {
         console.error("Erro:", error);
         showError("Erro ao gerar link: " + error.message);
         btnGenerate.disabled = false;
-        btnGenerate.textContent = originalText;
+        btnGenerate.textContent = "Gerar Link de Instalação";
       }
     });
 
@@ -629,7 +582,7 @@
         successMessage.classList.add("show");
         setTimeout(() => successMessage.classList.remove("show"), 3000);
       } catch (error) {
-        showError("Erro ao copiar link: " + error.message);
+        showError("Erro ao copiar link");
       }
     });
 
@@ -664,7 +617,7 @@
           apiKeyInput.value = config.apiKey;
           languageSelect.value = config.targetLang;
         } catch (error) {
-          console.error("Erro ao carregar configuração salva:", error);
+          console.error("Erro ao carregar config:", error);
         }
       }
     }
