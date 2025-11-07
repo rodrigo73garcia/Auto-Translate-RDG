@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Translate RDG - Setup</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 500px;
+      width: 100%;
+      padding: 40px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    h1 {
+      color: #333;
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 25px;
+    }
+
+    label {
+      display: block;
+      color: #333;
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+      font-family: inherit;
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .help-link {
+      margin-top: 8px;
+    }
+
+    .help-link a {
+      color: #667eea;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .help-link a:hover {
+      text-decoration: underline;
+    }
+
+    .warning {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 25px;
+      font-size: 13px;
+      color: #856404;
+      line-height: 1.5;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #5568d3;
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn-primary:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #e0e0e0;
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary:disabled {
+      background: #f5f5f5;
+      color: #999;
+      cursor: not-allowed;
+    }
+
+    .btn-install {
+      background: #4caf50;
+      color: white;
+      width: 100%;
+    }
+
+    .btn-install:hover:not(:disabled) {
+      background: #45a049;
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(76, 175, 80, 0.3);
+    }
+
+    .result-box {
+      background: #f5f5f5;
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 20px;
+      display: none;
+    }
+
+    .result-box.show {
+      display: block;
+      animation: slideDown 0.3s ease;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .result-label {
+      color: #666;
+      font-size: 12px;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .manifest-link {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 12px;
+      word-break: break-all;
+      font-family: "Courier New", monospace;
+      color: #333;
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+
+    .success-message {
+      color: #4caf50;
+      font-size: 13px;
+      margin-top: 10px;
+      display: none;
+    }
+
+    .success-message.show {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    .icon {
+      display: inline-block;
+      margin-right: 4px;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 30px;
+      color: #999;
+      font-size: 12px;
+      border-top: 1px solid #eee;
+      padding-top: 20px;
+    }
+
+    .language-selector {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 4px;
+      height: 4px;
+      background: #667eea;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+      margin-left: 4px;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  </style>
+</head>
+<body>
+  <select id="languageSelector" class="language-selector"></select>
+
+  <div class="container">
+    <header>
+      <h1>🎬 <span data-i18n="titulo"></span></h1>
+      <p class="subtitle" data-i18n="descricao"></p>
+    </header>
+
+    <div class="warning" data-i18n="aviso"></div>
+
+    <form id="configForm">
+      <div class="form-group">
+        <label for="apiKey" data-i18n="apiKeyLabel"></label>
+        <input 
+          type="text" 
+          id="apiKey" 
+          placeholder="data-i18n=apiKeyPlaceholder" 
+          required
+        >
+        <div class="help-link">
+          <a href="https://www.opensubtitles.com/en/consumers" target="_blank">
+            <span class="icon">🔗</span>
+            <span data-i18n="crieApiAqui"></span>
+          </a>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="language" data-i18n="idiomaLabel"></label>
+        <select id="language" required>
+          <option value="">-- <span data-i18n="idiomaPlaceholder"></span> --</option>
+        </select>
+      </div>
+
+      <div class="buttons">
+        <button 
+          type="button" 
+          class="btn-primary" 
+          id="btnGenerate" 
+          data-i18n="botaoGerar"
+        ></button>
+      </div>
+
+      <div class="result-box" id="resultBox">
+        <div class="result-label" data-i18n="botaoGerar"></div>
+        <div class="manifest-link" id="manifestLink"></div>
+        
+        <div style="display: flex; gap: 10px;">
+          <button 
+            type="button" 
+            class="btn-secondary" 
+            id="btnCopy" 
+            data-i18n="botaoCopiar"
+            style="flex: 1;"
+          ></button>
+          <button 
+            type="button" 
+            class="btn-install" 
+            id="btnInstall" 
+            data-i18n="botaoInstalar"
+            style="flex: 1;"
+          ></button>
+        </div>
+
+        <div class="success-message" id="successMessage" data-i18n="sucesso"></div>
+      </div>
+    </form>
+
+    <footer data-i18n="rodape"></footer>
+  </div>
+
+  <script>
+    // Traduções
+    const translations = {
+      pt: {
+        titulo: "Auto Translate RDG - Configuração",
+        descricao: "Configure sua addon de tradução de legendas para Stremio",
+        apiKeyLabel: "Chave API do OpenSubtitles:",
+        apiKeyPlaceholder: "Cole sua API key aqui...",
+        crieApiAqui: "Crie sua API aqui",
+        idiomaLabel: "Idioma Alvo de Tradução:",
+        idiomaPlaceholder: "Escolha um idioma...",
+        botaoGerar: "Gerar Link de Instalação",
+        botaoCopiar: "Copiar Link",
+        botaoInstalar: "Instalar no Stremio",
+        sucesso: "✅ Link copiado! Você pode instalar no Stremio",
+        aviso: "⚠️ Sua API key será armazenada em seu navegador (localStorage)",
+        rodape: "© 2025 Auto Translate RDG - Addon para Stremio"
+      },
+      en: {
+        titulo: "Auto Translate RDG - Configuration",
+        descricao: "Configure your subtitle translation addon for Stremio",
+        apiKeyLabel: "OpenSubtitles API Key:",
+        apiKeyPlaceholder: "Paste your API key here...",
+        crieApiAqui: "Create your API here",
+        idiomaLabel: "Target Translation Language:",
+        idiomaPlaceholder: "Choose a language...",
+        botaoGerar: "Generate Installation Link",
+        botaoCopiar: "Copy Link",
+        botaoInstalar: "Install on Stremio",
+        sucesso: "✅ Link copied! You can install on Stremio",
+        aviso: "⚠️ Your API key will be stored in your browser (localStorage)",
+        rodape: "© 2025 Auto Translate RDG - Stremio Addon"
+      },
+      es: {
+        titulo: "Auto Translate RDG - Configuración",
+        descricao: "Configure su complemento de traducción de subtítulos para Stremio",
+        apiKeyLabel: "Clave API de OpenSubtitles:",
+        apiKeyPlaceholder: "Pegue su clave API aquí...",
+        crieApiAqui: "Cree su API aquí",
+        idiomaLabel: "Idioma Objetivo de Traducción:",
+        idiomaPlaceholder: "Elija un idioma...",
+        botaoGerar: "Generar Enlace de Instalación",
+        botaoCopiar: "Copiar Enlace",
+        botaoInstalar: "Instalar en Stremio",
+        sucesso: "✅ ¡Enlace copiado! Puede instalar en Stremio",
+        aviso: "⚠️ Su clave API se almacenará en su navegador (localStorage)",
+        rodape: "© 2025 Auto Translate RDG - Complemento de Stremio"
+      },
+      fr: {
+        titulo: "Auto Translate RDG - Configuration",
+        descricao: "Configurez votre module de traduction de sous-titres pour Stremio",
+        apiKeyLabel: "Clé API OpenSubtitles:",
+        apiKeyPlaceholder: "Collez votre clé API ici...",
+        crieApiAqui: "Créez votre API ici",
+        idiomaLabel: "Langue cible de traduction:",
+        idiomaPlaceholder: "Choisissez une langue...",
+        botaoGerar: "Générer un lien d'installation",
+        botaoCopiar: "Copier le lien",
+        botaoInstalar: "Installer sur Stremio",
+        sucesso: "✅ Lien copié! Vous pouvez installer sur Stremio",
+        aviso: "⚠️ Votre clé API sera stockée dans votre navigateur (localStorage)",
+        rodape: "© 2025 Auto Translate RDG - Module Stremio"
+      },
+      de: {
+        titulo: "Auto Translate RDG - Konfiguration",
+        descricao: "Konfigurieren Sie Ihr Untertitel-Übersetzungs-Add-on für Stremio",
+        apiKeyLabel: "OpenSubtitles API-Schlüssel:",
+        apiKeyPlaceholder: "Fügen Sie Ihren API-Schlüssel ein...",
+        crieApiAqui: "Erstelle hier deine API",
+        idiomaLabel: "Zielsprache für die Übersetzung:",
+        idiomaPlaceholder: "Wählen Sie eine Sprache...",
+        botaoGerar: "Installationslink generieren",
+        botaoCopiar: "Link kopieren",
+        botaoInstalar: "In Stremio installieren",
+        sucesso: "✅ Link kopiert! Sie können in Stremio installieren",
+        aviso: "⚠️ Ihr API-Schlüssel wird in Ihrem Browser gespeichert (localStorage)",
+        rodape: "© 2025 Auto Translate RDG - Stremio Add-on"
+      },
+      ja: {
+        titulo: "Auto Translate RDG - 設定",
+        descricao: "Stremio用の字幕翻訳アドオンを設定します",
+        apiKeyLabel: "OpenSubtitles APIキー:",
+        apiKeyPlaceholder: "APIキーをここに貼り付けます...",
+        crieApiAqui: "ここでAPIを作成",
+        idiomaLabel: "ターゲット翻訳言語:",
+        idiomaPlaceholder: "言語を選択...",
+        botaoGerar: "インストールリンクを生成",
+        botaoCopiar: "リンクをコピー",
+        botaoInstalar: "Stremioにインストール",
+        sucesso: "✅ リンクがコピーされました！Stremioにインストールできます",
+        aviso: "⚠️ APIキーはブラウザに保存されます（localStorage）",
+        rodape: "© 2025 Auto Translate RDG - Stremioアドオン"
+      }
+    };
+
+    const languageNames = {
+      pt: "Português",
+      en: "English",
+      es: "Español",
+      fr: "Français",
+      de: "Deutsch",
+      ja: "日本語"
+    };
+
+    // Elementos do DOM
+    const apiKeyInput = document.getElementById("apiKey");
+    const languageSelect = document.getElementById("language");
+    const languageSelector = document.getElementById("languageSelector");
+    const btnGenerate = document.getElementById("btnGenerate");
+    const btnCopy = document.getElementById("btnCopy");
+    const btnInstall = document.getElementById("btnInstall");
+    const resultBox = document.getElementById("resultBox");
+    const manifestLink = document.getElementById("manifestLink");
+    const successMessage = document.getElementById("successMessage");
+
+    // Detectar idioma do navegador
+    function detectBrowserLanguage() {
+      const lang = navigator.language || navigator.userLanguage;
+      const langCode = lang.split("-")[0];
+      return langCode in translations ? langCode : "en";
+    }
+
+    // Carregar idiomas de tradução
+    async function loadLanguages() {
+      try {
+        const response = await fetch("/api/languages");
+        const langs = await response.json();
+        
+        for (const [code, name] of Object.entries(langs)) {
+          const option = document.createElement("option");
+          option.value = code;
+          option.textContent = name;
+          languageSelect.appendChild(option);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar idiomas:", error);
+      }
+    }
+
+    // Carregar seletor de idiomas da interface
+    function loadLanguageSelector() {
+      for (const [code, name] of Object.entries(languageNames)) {
+        const option = document.createElement("option");
+        option.value = code;
+        option.textContent = name;
+        languageSelector.appendChild(option);
+      }
+    }
+
+    // Atualizar textos da página
+    function updateUI(lang) {
+      const t = translations[lang];
+      document.querySelectorAll("[data-i18n]").forEach(el => {
+        const key = el.getAttribute("data-i18n");
+        if (t[key]) {
+          if (el.tagName === "INPUT" || el.tagName === "BUTTON") {
+            el.placeholder = t[key];
+            el.textContent = t[key];
+          } else {
+            el.textContent = t[key];
+          }
+        }
+      });
+
+      // Atualizar placeholders
+      document.querySelector('input[data-i18n="apiKeyPlaceholder"]').placeholder = t.apiKeyPlaceholder;
+      document.querySelector('select#language').title = t.idiomaPlaceholder;
+    }
+
+    // Gerar link de instalação
+    btnGenerate.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      const apiKey = apiKeyInput.value.trim();
+      const language = languageSelect.value;
+
+      if (!apiKey || !language) {
+        alert("Por favor, preencha todos os campos");
+        return;
+      }
+
+      btnGenerate.disabled = true;
+      btnGenerate.innerHTML = `<span class="loading"></span>`;
+
+      try {
+        const response = await fetch("/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey, targetLang: language })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          manifestLink.textContent = data.manifestUrl;
+          resultBox.classList.add("show");
+
+          // Salvar no localStorage
+          localStorage.setItem("addonConfig", JSON.stringify({ apiKey, targetLang: language }));
+
+          btnGenerate.disabled = false;
+          btnGenerate.innerHTML = document.querySelector("[data-i18n='botaoGerar']").textContent;
+        }
+      } catch (error) {
+        alert("Erro ao gerar link: " + error.message);
+        btnGenerate.disabled = false;
+        btnGenerate.innerHTML = document.querySelector("[data-i18n='botaoGerar']").textContent;
+      }
+    });
+
+    // Copiar link
+    btnCopy.addEventListener("click", () => {
+      const text = manifestLink.textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        successMessage.classList.add("show");
+        setTimeout(() => successMessage.classList.remove("show"), 3000);
+      });
+    });
+
+    // Instalar no Stremio
+    btnInstall.addEventListener("click", () => {
+      const url = manifestLink.textContent;
+      const stremioUrl = `stremio://addon/${encodeURIComponent(url)}`;
+      window.location.href = stremioUrl;
+    });
+
+    // Trocar idioma
+    languageSelector.addEventListener("change", (e) => {
+      const lang = e.target.value;
+      updateUI(lang);
+      localStorage.setItem("uiLanguage", lang);
+    });
+
+    // Inicializar
+    function init() {
+      loadLanguageSelector();
+      loadLanguages();
+
+      const savedLang = localStorage.getItem("uiLanguage") || detectBrowserLanguage();
+      languageSelector.value = savedLang;
+      updateUI(savedLang);
+
+      // Carregar configuração salva se existir
+      const savedConfig = localStorage.getItem("addonConfig");
+      if (savedConfig) {
+        const config = JSON.parse(savedConfig);
+        apiKeyInput.value = config.apiKey;
+        languageSelect.value = config.targetLang;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
