@@ -13,12 +13,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// API key do OpenSubtitles
 const OPENSUBTITLES_API_KEY = process.env.OPENSUBTITLES_API_KEY || "";
-
-if (!OPENSUBTITLES_API_KEY) {
-  console.warn("⚠️ AVISO: OPENSUBTITLES_API_KEY não configurada!");
-}
 
 app.use(cors());
 app.use(morgan("dev"));
@@ -27,9 +22,13 @@ const subtitlesDir = path.join(__dirname, "subtitles");
 await fs.ensureDir(subtitlesDir);
 
 // =======================
-// Função para obter legenda do OpenSubtitles (Nova API v1)
+// Função NOVA API (com autenticação)
 // =======================
-async function getSubtitle(imdbId, type = "movie", season = null, episode = null) {
+async function getSubtitleNewAPI(imdbId, type = "movie", season = null, episode = null) {
+  if (!OPENSUBTITLES_API_KEY) {
+    throw new Error("API key não configurada");
+  }
+  
   const cleanId = imdbId.replace("tt", "").split(":")[0];
   
   let searchParams = new URLSearchParams({
@@ -47,67 +46,124 @@ async function getSubtitle(imdbId, type = "movie", season = null, episode = null
   
   const url = `https://api.opensubtitles.com/api/v1/subtitles?${searchParams}`;
   
-  console.log(`[${new Date().toISOString()}] Buscando legendas: ${url}`);
+  console.log(`[${new Date().toISOString()}] Tentando Nova API: ${url}`);
   
+  const response = await fetch(url, {
+    headers: {
+      "Api-Key": OPENSUBTITLES_API_KEY,
+      "User-Agent": "StremioAutoTranslateRDG v1.0",
+    },
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Nova API falhou ${response.status}: ${errorText}`);
+  }
+  
+  const data = await response.json();
+  
+  if (!data.data || data.data.length === 0) {
+    throw new Error("Nenhuma legenda encontrada");
+  }
+  
+  const bestSub = data.data.sort((a, b) => 
+    (b.attributes.ratings || 0) - (a.attributes.ratings || 0)
+  )[0];
+  
+  const fileId = bestSub.attributes.files[0].file_id;
+  
+  const downloadResponse = await fetch(`https://api.opensubtitles.com/api/v1/download`, {
+    method: "POST",
+    headers: {
+      "Api-Key": OPENSUBTITLES_API_KEY,
+      "Content-Type": "application/json",
+      "User-Agent": "StremioAutoTranslateRDG v1.0",
+    },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+  
+  if (!downloadResponse.ok) {
+    throw new Error(`Falha no download: ${downloadResponse.statusText}`);
+  }
+  
+  const downloadData = await downloadResponse.json();
+  const subtitleUrl = downloadData.link;
+  
+  const subRes = await fetch(subtitleUrl);
+  if (!subRes.ok) {
+    throw new Error(`Falha ao baixar arquivo: ${subRes.statusText}`);
+  }
+  
+  const buffer = await subRes.arrayBuffer();
+  return Buffer.from(buffer).toString("utf-8");
+}
+
+// =======================
+// Função API ANTIGA (fallback, sem autenticação)
+// =======================
+async function getSubtitleOldAPI(imdbId, type = "movie", season = null, episode = null) {
+  const cleanId = imdbId.replace("tt", "").split(":")[0];
+  
+  let url = `https://rest.opensubtitles.org/search/imdbid-${cleanId}/sublanguageid-eng`;
+  
+  // Se for série, adiciona temporada e episódio
+  if (type === "series" && season && episode) {
+    url += `/season-${season}/episode-${episode}`;
+  }
+  
+  console.log(`[${new Date().toISOString()}] Tentando API Antiga: ${url}`);
+  
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "TemporaryUserAgent",
+    },
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API Antiga falhou ${response.status}`);
+  }
+  
+  const data = await response.json();
+  
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("Nenhuma legenda encontrada");
+  }
+  
+  const subUrl = data[0].SubDownloadLink?.replace(".gz", "");
+  if (!subUrl) {
+    throw new Error("Link da legenda inválido");
+  }
+  
+  console.log(`[${new Date().toISOString()}] Link encontrado: ${subUrl}`);
+  
+  const subRes = await fetch(subUrl);
+  if (!subRes.ok) {
+    throw new Error(`Falha ao baixar: ${subRes.statusText}`);
+  }
+  
+  const buffer = await subRes.arrayBuffer();
+  return Buffer.from(buffer).toString("utf-8");
+}
+
+// =======================
+// Função principal (tenta nova API, fallback para antiga)
+// =======================
+async function getSubtitle(imdbId, type = "movie", season = null, episode = null) {
   try {
-    const response = await fetch(url, {
-      headers: {
-        "Api-Key": OPENSUBTITLES_API_KEY,
-        "User-Agent": "StremioAutoTranslateRDG v1.0",
-      },
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!data.data || data.data.length === 0) {
-      throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
-    }
-    
-    const bestSub = data.data.sort((a, b) => 
-      (b.attributes.ratings || 0) - (a.attributes.ratings || 0)
-    )[0];
-    
-    const fileId = bestSub.attributes.files[0].file_id;
-    
-    console.log(`[${new Date().toISOString()}] FileID encontrado: ${fileId}`);
-    
-    const downloadUrl = `https://api.opensubtitles.com/api/v1/download`;
-    
-    const downloadResponse = await fetch(downloadUrl, {
-      method: "POST",
-      headers: {
-        "Api-Key": OPENSUBTITLES_API_KEY,
-        "Content-Type": "application/json",
-        "User-Agent": "StremioAutoTranslateRDG v1.0",
-      },
-      body: JSON.stringify({ file_id: fileId }),
-    });
-    
-    if (!downloadResponse.ok) {
-      throw new Error(`Falha no download: ${downloadResponse.statusText}`);
-    }
-    
-    const downloadData = await downloadResponse.json();
-    const subtitleUrl = downloadData.link;
-    
-    console.log(`[${new Date().toISOString()}] Download link: ${subtitleUrl}`);
-    
-    const subRes = await fetch(subtitleUrl);
-    if (!subRes.ok) {
-      throw new Error(`Falha ao baixar arquivo: ${subRes.statusText}`);
-    }
-    
-    const buffer = await subRes.arrayBuffer();
-    return Buffer.from(buffer).toString("utf-8");
-    
+    // Tenta nova API primeiro
+    console.log("🔄 Tentando Nova API do OpenSubtitles...");
+    return await getSubtitleNewAPI(imdbId, type, season, episode);
   } catch (err) {
-    console.error("❌ Erro ao buscar legenda:", err.message);
-    throw err;
+    console.warn(`⚠️ Nova API falhou: ${err.message}`);
+    
+    // Fallback para API antiga
+    try {
+      console.log("🔄 Tentando API Antiga (fallback)...");
+      return await getSubtitleOldAPI(imdbId, type, season, episode);
+    } catch (err2) {
+      console.error(`❌ API Antiga também falhou: ${err2.message}`);
+      throw new Error(`Ambas APIs falharam. Configure OPENSUBTITLES_API_KEY para melhor resultado.`);
+    }
   }
 }
 
@@ -250,7 +306,8 @@ app.get("/health", (req, res) => {
   res.json({ 
     status: "ok", 
     uptime: process.uptime(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    apiKeyConfigured: !!OPENSUBTITLES_API_KEY
   });
 });
 
@@ -258,6 +315,10 @@ app.get("/health", (req, res) => {
 // Página inicial
 // =======================
 app.get("/", (req, res) => {
+  const apiStatus = OPENSUBTITLES_API_KEY 
+    ? '✅ Configurada (usando Nova API)' 
+    : '⚠️ Não configurada (usando API Antiga - menos confiável)';
+  
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -279,6 +340,7 @@ app.get("/", (req, res) => {
         }
         h1 { color: #333; }
         .status { color: #28a745; font-weight: bold; }
+        .warning { color: #ff9800; font-weight: bold; }
         code { 
           background: #f4f4f4; 
           padding: 2px 6px; 
@@ -288,6 +350,12 @@ app.get("/", (req, res) => {
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
         ul { line-height: 1.8; }
+        .warning-box {
+          background: #fff3cd;
+          border-left: 4px solid #ff9800;
+          padding: 15px;
+          margin: 20px 0;
+        }
       </style>
     </head>
     <body>
@@ -295,10 +363,18 @@ app.get("/", (req, res) => {
         <h1>🎬 Auto Translate RDG</h1>
         <p class="status">✅ Addon rodando com sucesso!</p>
         
+        ${!OPENSUBTITLES_API_KEY ? `
+        <div class="warning-box">
+          <strong>⚠️ ATENÇÃO:</strong> API key não configurada!<br>
+          O addon está usando a API antiga como fallback, que é menos confiável.<br>
+          Configure <code>OPENSUBTITLES_API_KEY</code> no Render para melhor experiência.
+        </div>
+        ` : ''}
+        
         <h3>📋 Informações:</h3>
         <ul>
           <li><strong>Porta:</strong> ${PORT}</li>
-          <li><strong>Status API:</strong> ${OPENSUBTITLES_API_KEY ? '✅ Configurada' : '❌ Não configurada'}</li>
+          <li><strong>Status API:</strong> ${apiStatus}</li>
           <li><strong>Manifest:</strong> <a href="/manifest.json">/manifest.json</a></li>
           <li><strong>Health Check:</strong> <a href="/health">/health</a></li>
         </ul>
@@ -322,6 +398,13 @@ app.get("/", (req, res) => {
 // =======================
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Servidor iniciado na porta ${PORT}`);
+  
+  if (OPENSUBTITLES_API_KEY) {
+    console.log(`✅ API Key configurada - Usando Nova API`);
+  } else {
+    console.warn(`⚠️ AVISO: API Key não configurada - Usando API Antiga (fallback)`);
+  }
+  
   console.log(`📝 Manifest: http://localhost:${PORT}/manifest.json`);
   console.log(`💚 Health: http://localhost:${PORT}/health`);
 });
