@@ -1,100 +1,327 @@
 import express from "express";
-import axios from "axios"; // Usaremos Axios
-import fs from "fs";
+import fetch from "node-fetch";
+import fs from "fs-extra";
 import path from "path";
+import cors from "cors";
+import morgan from "morgan";
 import { fileURLToPath } from "url";
-import translate from "google-translate-api-x"; 
-// ⚠️ ESTA FUNÇÃO AINDA ESTÁ QUEBRADA! Será corrigida na próxima etapa.
+import translate from "google-translate-api-x";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 10000; 
+const PORT = process.env.PORT || 10000;
 
-// 🚨 CORREÇÃO: URL do Addon de Legendas Oficial do Stremio (OpenSubtitles V3)
-const OFFICIAL_SUBTITLES_ADDON_URL = "https://opensubtitles-v3.strem.io"; 
+// API key do OpenSubtitles
+const OPENSUBTITLES_API_KEY = process.env.OPENSUBTITLES_API_KEY || "";
 
-const MAX_ERROR_DELAY_MS = 15000; 
-const MAX_ATTEMPTS = 5; 
+if (!OPENSUBTITLES_API_KEY) {
+  console.warn("⚠️ AVISO: OPENSUBTITLES_API_KEY não configurada!");
+}
 
-// Middleware CORS e Log (inalterados)
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-  next();
-});
-
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
+app.use(cors());
+app.use(morgan("dev"));
 
 const subtitlesDir = path.join(__dirname, "subtitles");
-if (!fs.existsSync(subtitlesDir)) {
-  fs.mkdirSync(subtitlesDir, { recursive: true });
-}
+await fs.ensureDir(subtitlesDir);
 
 // =======================
-// Função para obter legenda original - BUSCANDO DE OUTRO ADDON (OpenSubtitles V3)
+// Função para obter legenda do OpenSubtitles (Nova API v1)
 // =======================
-async function getSubtitle(imdbId, season, episode) {
-    const targetLang = "eng"; 
-    const cleanId = imdbId.startsWith("tt") ? imdbId : `tt${imdbId}`;
-    let addonRequestUrl;
+async function getSubtitle(imdbId, type = "movie", season = null, episode = null) {
+  const cleanId = imdbId.replace("tt", "").split(":")[0];
+  
+  let searchParams = new URLSearchParams({
+    imdb_id: cleanId,
+    languages: "en",
+  });
+  
+  if (type === "series" && season && episode) {
+    searchParams.append("type", "episode");
+    searchParams.append("season_number", season);
+    searchParams.append("episode_number", episode);
+  } else {
+    searchParams.append("type", "movie");
+  }
+  
+  const url = `https://api.opensubtitles.com/api/v1/subtitles?${searchParams}`;
+  
+  console.log(`[${new Date().toISOString()}] Buscando legendas: ${url}`);
+  
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "Api-Key": OPENSUBTITLES_API_KEY,
+        "User-Agent": "StremioAutoTranslateRDG v1.0",
+      },
+    });
     
-    // Constrói a URL de requisição para o OpenSubtitles V3 Addon
-    if (season && episode) {
-        addonRequestUrl = `${OFFICIAL_SUBTITLES_ADDON_URL}/subtitles/series/${cleanId}:${season}:${episode}.json`;
-        console.log(`[${new Date().toISOString()}] Buscando série da Addon Oficial: ${cleanId} S${season}E${episode}`);
-    } else {
-        addonRequestUrl = `${OFFICIAL_SUBTITLES_ADDON_URL}/subtitles/movie/${cleanId}.json`;
-        console.log(`[${new Date().toISOString()}] Buscando filme da Addon Oficial: ${cleanId}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Erro HTTP ${response.status}: ${errorText}`);
     }
-  
-    console.log(`[${new Date().toISOString()}] Chamando Addon Oficial: ${addonRequestUrl}`);
-
-    try {
-        // 1. Chama a outra addon para obter o link do SRT
-        const response = await axios.get(addonRequestUrl);
-        const data = response.data; 
-
-        if (!data.subtitles || data.subtitles.length === 0)
-          throw new Error(`Nenhuma legenda em ${targetLang} encontrada pela Addon Oficial.`);
-
-        // Filtra para pegar o primeiro link de legenda no idioma desejado (English)
-        // O lang code do Stremio é ISO 639-2. Usamos "eng"
-        const sub = data.subtitles.find(s => s.lang === targetLang);
-        
-        if (!sub) {
-            throw new Error(`Legenda em ${targetLang} não encontrada na resposta da Addon Oficial.`);
-        }
-
-        const subUrl = sub.url; 
-        console.log(`[${new Date().toISOString()}] Link da legenda encontrado: ${subUrl}`);
-
-        // 2. Baixar o conteúdo da legenda (usando o link absoluto que é devolvido)
-        const subRes = await axios.get(subUrl, { 
-            responseType: 'arraybuffer'
-        });
-
-        // Retorna a string do conteúdo da legenda
-        return Buffer.from(subRes.data).toString("utf-8");
-
-    } catch (err) {
-        const status = err.response?.status || 'Network Error';
-        console.error(`❌ Erro [${status}] ao buscar legenda da Addon Oficial:`, err.message);
-        throw new Error(`Falha na busca da Addon Oficial: ${err.message}`);
-    }
+    
+    const data = await response.json();
+    
+    if (!data.data || data.data.length === 0) {
+      throw new Error("Nenhuma legenda encontrada no OpenSubtitles.");
+    }
+    
+    const bestSub = data.data.sort((a, b) => 
+      (b.attributes.ratings || 0) - (a.attributes.ratings || 0)
+    )[0];
+    
+    const fileId = bestSub.attributes.files[0].file_id;
+    
+    console.log(`[${new Date().toISOString()}] FileID encontrado: ${fileId}`);
+    
+    const downloadUrl = `https://api.opensubtitles.com/api/v1/download`;
+    
+    const downloadResponse = await fetch(downloadUrl, {
+      method: "POST",
+      headers: {
+        "Api-Key": OPENSUBTITLES_API_KEY,
+        "Content-Type": "application/json",
+        "User-Agent": "StremioAutoTranslateRDG v1.0",
+      },
+      body: JSON.stringify({ file_id: fileId }),
+    });
+    
+    if (!downloadResponse.ok) {
+      throw new Error(`Falha no download: ${downloadResponse.statusText}`);
+    }
+    
+    const downloadData = await downloadResponse.json();
+    const subtitleUrl = downloadData.link;
+    
+    console.log(`[${new Date().toISOString()}] Download link: ${subtitleUrl}`);
+    
+    const subRes = await fetch(subtitleUrl);
+    if (!subRes.ok) {
+      throw new Error(`Falha ao baixar arquivo: ${subRes.statusText}`);
+    }
+    
+    const buffer = await subRes.arrayBuffer();
+    return Buffer.from(buffer).toString("utf-8");
+    
+  } catch (err) {
+    console.error("❌ Erro ao buscar legenda:", err.message);
+    throw err;
+  }
 }
 
 // =======================
-// Traduz legenda (Mantendo a API antiga para ser corrigida)
+// Traduz legenda (com blocos de até 4500 chars)
 // =======================
 async function translateSubtitle(content, targetLang = "pt") {
-    // ... (Mantenha o código da função translateSubtitle da minha penúltima resposta)
-    // Este código usa google-translate-api-x e tem o erro 'Method Not Allowed'.
-    // Será o próximo a ser resolvido.
+  const lines = content.split("\n");
+  const blocks = [];
+  let temp = "";
+  
+  for (const line of lines) {
+    if (temp.length + line.length < 4500) {
+      temp += line + "\n";
+    } else {
+      blocks.push(temp);
+      temp = line + "\n";
+    }
+  }
+  if (temp) blocks.push(temp);
+  
+  console.log(`Traduzindo ${blocks.length} blocos (${lines.length} linhas totais)...`);
+  
+  let translated = new Array(blocks.length).fill("");
+  
+  async function processBatch(start, end) {
+    const batch = blocks.slice(start, end).map(async (block, i) => {
+      const index = start + i;
+      try {
+        const res = await translate(block, { to: targetLang });
+        translated[index] = res.text;
+        console.log(`✔️ Bloco ${index + 1}/${blocks.length} traduzido`);
+      } catch (err) {
+        console.error(`❌ Erro no bloco ${index + 1}:`, err.message);
+        translated[index] = block;
+      }
+    });
+    await Promise.allSettled(batch);
+  }
+  
+  const batchSize = 4;
+  for (let i = 0; i < blocks.length; i += batchSize) {
+    await processBatch(i, i + batchSize);
+  }
+  
+  return translated.join("\n");
 }
 
-// ... (Rotas e inicialização permanecem iguais)
+// =======================
+// Manifest do addon
+// =======================
+app.get("/manifest.json", (req, res) => {
+  const manifest = {
+    id: "org.rdg.autotranslate",
+    version: "1.0.0",
+    name: "Auto Translate RDG",
+    description: "Traduz legendas automaticamente para PT-BR (Filmes e Séries)",
+    resources: ["subtitles"],
+    types: ["movie", "series"],
+    idPrefixes: ["tt"],
+    catalogs: [],
+  };
+  res.json(manifest);
+});
+
+// =======================
+// Rota principal de legendas
+// =======================
+app.get("/subtitles/:type/:imdbId*.json", async (req, res) => {
+  const { type, imdbId } = req.params;
+  const targetLang = req.query.lang || "pt";
+  
+  const idParts = imdbId.split(":");
+  const cleanId = idParts[0].replace("tt", "");
+  const season = idParts[1] || null;
+  const episode = idParts[2] || null;
+  
+  const cacheKey = season && episode 
+    ? `${cleanId}_S${season}E${episode}_${targetLang}`
+    : `${cleanId}_${targetLang}`;
+  
+  const cachePath = path.join(subtitlesDir, `${cacheKey}.srt`);
+  
+  console.log(`[${new Date().toISOString()}] 🔹 Requisição -> ${type} | IMDB: ${imdbId} | S${season}E${episode}`);
+  
+  try {
+    if (!(await fs.pathExists(cachePath))) {
+      console.log(`🕐 Nenhum cache encontrado. Buscando e traduzindo...`);
+      
+      const original = await getSubtitle(
+        `tt${cleanId}`,
+        type,
+        season,
+        episode
+      );
+      
+      const translated = await translateSubtitle(original, targetLang);
+      await fs.writeFile(cachePath, translated, "utf-8");
+      
+      console.log(`💾 Legenda traduzida salva em cache: ${path.basename(cachePath)}`);
+    } else {
+      console.log(`✅ Cache existente para ${cacheKey}`);
+    }
+    
+    const body = [
+      {
+        id: `${imdbId}:${targetLang}`,
+        url: `${req.protocol}://${req.get("host")}/subtitles/file/${cacheKey}.srt`,
+        lang: targetLang,
+        name: `Auto-Translated (${targetLang.toUpperCase()})`,
+      },
+    ];
+    
+    res.json({ subtitles: body });
+    
+  } catch (err) {
+    console.error("❌ Erro geral:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =======================
+// Rota para servir o arquivo SRT traduzido
+// =======================
+app.get("/subtitles/file/:file", async (req, res) => {
+  const file = path.join(subtitlesDir, req.params.file);
+  
+  if (await fs.pathExists(file)) {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    fs.createReadStream(file).pipe(res);
+  } else {
+    res.status(404).send("Arquivo não encontrado");
+  }
+});
+
+// =======================
+// Health check para Render
+// =======================
+app.get("/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// =======================
+// Página inicial
+// =======================
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Auto Translate RDG</title>
+      <style>
+        body { 
+          font-family: Arial, sans-serif; 
+          max-width: 800px; 
+          margin: 50px auto; 
+          padding: 20px;
+          background: #f5f5f5;
+        }
+        .container {
+          background: white;
+          padding: 30px;
+          border-radius: 10px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        .status { color: #28a745; font-weight: bold; }
+        code { 
+          background: #f4f4f4; 
+          padding: 2px 6px; 
+          border-radius: 3px;
+          font-size: 14px;
+        }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ul { line-height: 1.8; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🎬 Auto Translate RDG</h1>
+        <p class="status">✅ Addon rodando com sucesso!</p>
+        
+        <h3>📋 Informações:</h3>
+        <ul>
+          <li><strong>Porta:</strong> ${PORT}</li>
+          <li><strong>Status API:</strong> ${OPENSUBTITLES_API_KEY ? '✅ Configurada' : '❌ Não configurada'}</li>
+          <li><strong>Manifest:</strong> <a href="/manifest.json">/manifest.json</a></li>
+          <li><strong>Health Check:</strong> <a href="/health">/health</a></li>
+        </ul>
+        
+        <h3>🚀 Como Usar no Stremio:</h3>
+        <ol>
+          <li>Copie a URL: <code>${req.protocol}://${req.get("host")}/manifest.json</code></li>
+          <li>Abra o Stremio</li>
+          <li>Vá em <strong>Addons → Community Addons</strong></li>
+          <li>Cole a URL e instale</li>
+          <li>Aproveite as legendas traduzidas!</li>
+        </ol>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// =======================
+// Inicializa servidor
+// =======================
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Servidor iniciado na porta ${PORT}`);
+  console.log(`📝 Manifest: http://localhost:${PORT}/manifest.json`);
+  console.log(`💚 Health: http://localhost:${PORT}/health`);
+});
